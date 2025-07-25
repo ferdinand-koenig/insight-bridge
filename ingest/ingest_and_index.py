@@ -5,11 +5,23 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 import pickle
+import yaml
 
-# Paths
-RAW_DOCS_PATH = "data/raw"
-INDEX_SAVE_PATH = "data/faiss_index"
-METADATA_SAVE_PATH = "data/faiss_metadata.pkl"
+def load_config(path="config.yaml"):
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
+
+config = load_config()
+
+# Dynamic configs
+embedding_model_name = config.get("embedding_model_name", "sentence-transformers/sci-base")
+
+# Grouped FAISS config with defaults fallback
+faiss_config = config.get("FAISS", {})
+INDEX_SAVE_PATH = faiss_config.get("index_path", "data/faiss_index")
+METADATA_SAVE_PATH = faiss_config.get("metadata_path", "data/faiss_metadata.pkl")
+
+RAW_DOCS_PATH = config.get("raw_docs_path", "data/raw")
 
 def load_documents(path):
     """
@@ -62,7 +74,7 @@ def chunk_documents(docs):
     print(f"{len(chunks)} Chunks")
     return chunks
 
-def embed_chunks(chunks, model_name="sentence-transformers/sci-base"):  # model_name="all-MiniLM-L6-v2"):
+def embed_chunks(chunks, model_name=None):  # model_name="all-MiniLM-L6-v2"):
     """
     Generate embeddings for each document chunk using a sentence transformer model.
 
@@ -82,6 +94,8 @@ def embed_chunks(chunks, model_name="sentence-transformers/sci-base"):  # model_
     Side Effects:
         Displays a progress bar during embedding generation.
     """
+    if model_name is None:
+        model_name = config.get("embedding_model_name", "sentence-transformers/sci-base")
     model = SentenceTransformer(model_name)
     texts = [chunk.page_content for chunk in chunks]
     embeddings = model.encode(texts, show_progress_bar=True)

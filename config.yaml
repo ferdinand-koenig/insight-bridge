@@ -1,0 +1,8 @@
+embedding_model_name: "sentence-transformers/sci-base"
+top_k: 3
+
+raw_docs_path: "data/raw"
+
+FAISS:
+  index_path: "data/faiss_index"
+  metadata_path: "data/faiss_metadata.pkl"
