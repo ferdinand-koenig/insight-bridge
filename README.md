@@ -40,14 +40,19 @@ Python, Pre-commit, fluff, ...
    ```bash
    git clone <your-repo-url>
    cd insight-bridge
-	```
+    ```
 	
 2. Install dependencies
-	```bash
-	poetry install
-	```
+    ```bash
+    poetry install
+    ```
+
+3. Install pre-commit
+    ```bash
+   poetry run pre-commit install
+    ```
 	
-3. Prepare your document folder
+4. Prepare your document folder
 
 Place PDF documents inside the `data/raw/` directory.
 
