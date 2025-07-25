@@ -9,9 +9,21 @@ license = {text = "CC BY-NC-SA 4.0"}
 readme = "README.md"
 requires-python = ">=3.10,<4.0"
 dependencies = [
+    "langchain (>=0.3.27,<0.4.0)",
+    "faiss-cpu (>=1.11.0.post1,<2.0.0)",
+    "sentence-transformers (>=5.0.0,<6.0.0)"
 ]
 
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
+packages = []
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^4.2.0"
+ruff = "^0.12.5"
+

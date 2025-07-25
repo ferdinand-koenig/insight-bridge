@@ -19,6 +19,11 @@ This project enables natural language Q&A on technical PDFs by:
 - (Planned) Integrating LLMs for answer generation  
 - (Planned) Packaging with Docker and adding monitoring for production readiness
 
+
+## Tech Stack
+> **TODO** Include here
+Python, Pre-commit, fluff, ...
+
 ---
 
 ## Setup
@@ -53,6 +58,7 @@ To run the document ingestion and indexing pipeline:
 	```bash
 	poetry run python ingest/ingest_and_index.py
 	```
+	
 This will:
 
 - Load PDFs from data/raw/
