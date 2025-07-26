@@ -3,6 +3,12 @@ top_k: 3
 
 raw_docs_path: "data/raw"
 
+arxiv_download:
+  categories:
+    - "cs.CL"
+  year: 2025
+  month: 6
+
 FAISS:
   index_path: "data/faiss_index"
   metadata_path: "data/faiss_metadata.pkl"

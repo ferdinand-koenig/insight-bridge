@@ -1,44 +1,95 @@
 """
-download_arxiv_corpus.py
-
-This script downloads the Arxiv corpus from KaggleHub and saves it to `data/raw/`
-for ingestion into the InsightBridge document processing pipeline.
-
-Usage:
-    poetry run python ingest/download_arxiv_corpus.py
+Downloads PDFs from arXiv for a given category and date, based on config.
 """
 
+import time
+import requests
+import feedparser
 from pathlib import Path
+from datetime import datetime
+import yaml
 
-import kagglehub
-from kagglehub import KaggleDatasetAdapter
+# Load config
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
 
-# Define constants
-ARXIV_DATASET_ID = "Cornell-University/arxiv"
-SAVE_DIR = Path("data/raw")
-FILENAME = "arxiv-metadata-oai-snapshot.json"
+RAW_DOCS_PATH = Path(config["raw_docs_path"])
+ARXIV_CONFIG = config["arxiv_download"]
+CATEGORIES = ARXIV_CONFIG["categories"]
+YEAR = ARXIV_CONFIG["year"]
+MONTH = ARXIV_CONFIG["month"]
+
+# Prepare target date range for filtering
+start_date = datetime(YEAR, MONTH, 1)
+if MONTH == 12:
+    end_date = datetime(YEAR + 1, 1, 1)
+else:
+    end_date = datetime(YEAR, MONTH + 1, 1)
+
+RAW_DOCS_PATH.mkdir(parents=True, exist_ok=True)
 
 
-def download_arxiv():
-    # Ensure the raw data directory exists
-    SAVE_DIR.mkdir(parents=True, exist_ok=True)
+def fetch_entries(category):
+    base_url = "http://export.arxiv.org/api/query"
+    start = 0
+    max_results = 1000
+    all_entries = []
 
-    print(f"Downloading Arxiv corpus from KaggleHub ({ARXIV_DATASET_ID})...")
+    while True:
+        query = f"cat:{category}"
+        params = {
+            "search_query": query,
+            "start": start,
+            "max_results": max_results,
+            "sortBy": "submittedDate",
+            "sortOrder": "descending"
+        }
 
-    # Load the dataset via KaggleHub using pandas
-    df = kagglehub.load_dataset(
-        KaggleDatasetAdapter.PANDAS,
-        ARXIV_DATASET_ID,
-        file_path=FILENAME
-    )
+        response = requests.get(base_url, params=params)
+        feed = feedparser.parse(response.text)
 
-    # Save locally as a backup or to support offline access
-    save_path = SAVE_DIR / FILENAME
-    df.to_json(save_path, orient="records", lines=True)
+        if not feed.entries:
+            break
 
-    print(f"Downloaded and saved Arxiv corpus to: {save_path}")
-    print("Sample records:\n", df.head())
+        for entry in feed.entries:
+            published = datetime.strptime(entry.published, "%Y-%m-%dT%H:%M:%SZ")
+            if published < start_date:
+                return all_entries
+            if start_date <= published < end_date:
+                all_entries.append(entry)
+
+        start += max_results
+        time.sleep(0.2)
+
+    return all_entries
+
+
+def download_pdf(entry):
+    arxiv_id = entry.id.split('/abs/')[-1]
+    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+    filename = f"{arxiv_id.replace('/', '_')}.pdf"
+    save_path = RAW_DOCS_PATH / filename
+
+    try:
+        response = requests.get(pdf_url)
+        response.raise_for_status()
+        with open(save_path, "wb") as f:
+            f.write(response.content)
+        print(f"Saved {filename}")
+    except Exception as e:
+        print(f"❌ Failed to download {arxiv_id}: {e}")
+
+
+def main():
+    for category in CATEGORIES:
+        print(f"Fetching papers for category: {category}")
+        entries = fetch_entries(category)
+        print(f"Found {len(entries)} papers.")
+
+        for entry in entries:
+            download_pdf(entry)
+            time.sleep(0.2)  # Be polite to arXiv servers
 
 
 if __name__ == "__main__":
-    download_arxiv()
+    main()
