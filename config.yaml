@@ -1,5 +1,5 @@
 embedding_model_name: "sentence-transformers/msmarco-distilbert-base-v4"
-top_k: 3
+top_k: 2
 
 raw_docs_path: "data/raw"  # "/vol/fob-vol5/mi22/koenigfd/data/raw/raw"  #
 
@@ -14,6 +14,6 @@ FAISS:
   metadata_path: "data/faiss_metadata.pkl"  # "/vol/fob-vol5/mi22/koenigfd/data/faiss_metadata.pkl"
 
 RAG:
-  chunk_size: 1000
-  chunk_overlap: 200
-  batch_size: 4096  # Adjust to memory limits
+  chunk_size: 700
+  chunk_overlap: 100
+  batch_size: 4096 * 2  # Adjust to memory limits

@@ -93,7 +93,13 @@ class LocalTransformersLLM(LLM):
         inputs = self._tokenizer(prompt, return_tensors="pt").to(self._device)
 
         # Generate output tokens using the model with max_length limit
-        outputs = self._model.generate(**inputs, max_length=self.max_length)
+        outputs = self._model.generate(**inputs,
+                                       max_length=self.max_length,
+                                       min_length=100,
+                                       num_beams=2,
+                                       max_new_tokens=512,  # output size limit
+                                       early_stopping=False
+        )
 
         # Decode the token IDs back into a string, skipping special tokens
         return self._tokenizer.decode(outputs[0], skip_special_tokens=True)

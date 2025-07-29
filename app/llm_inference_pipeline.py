@@ -70,9 +70,9 @@ vectorstore = FAISS(
 # ────────────────────────────── Initialize Local LLM ────────────────────────────── #
 
 # Create local LLM wrapper (using flan-t5-base or compatible model)
-llm = LocalTransformersLLM(
-    model_name="google/flan-t5-base",
-    max_length=512
+llm = LocalTransformersLLM(  # TODO make config
+    model_name="google/gemma-2b", # "google/flan-t5-large",
+    max_length=1024
 )
 
 qa_chain = RetrievalQA.from_chain_type(
