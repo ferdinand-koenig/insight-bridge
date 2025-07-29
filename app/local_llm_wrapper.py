@@ -92,7 +92,11 @@ class LocalTransformersLLM(LLM):
             self._is_seq2seq = True
         except Exception:
             # Fallback: try causal model loading
-            self._model = AutoModelForCausalLM.from_pretrained(self.model_name)
+            self._model = AutoModelForCausalLM.from_pretrained(self.model_name,
+                                                               low_cpu_mem_usage=True,
+                                                               device_map="auto",  # uses CPU if no CUDA
+                                                               torch_dtype="auto"
+                                                               )
             self._is_seq2seq = False
 
         # Select device (GPU if available, else CPU)
