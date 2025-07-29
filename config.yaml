@@ -1,5 +1,5 @@
 embedding_model_name: "sentence-transformers/msmarco-distilbert-base-v4"
-top_k: 2
+top_k: 3
 
 raw_docs_path: "data/raw"  # "/vol/fob-vol5/mi22/koenigfd/data/raw/raw"  #
 
