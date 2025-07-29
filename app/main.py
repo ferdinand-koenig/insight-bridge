@@ -1,5 +1,5 @@
 import gradio as gr
-from llm_pipeline import answer_question
+from app.llm_inference_pipeline import answer_question
 
 demo = gr.Interface(
     fn=answer_question,
