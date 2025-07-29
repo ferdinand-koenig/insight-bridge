@@ -28,6 +28,7 @@ from app.local_llm_wrapper import LocalTransformersLLM
 
 
 
+
 def load_config(path="config.yaml"):
     with open(path, "r") as f:
         return yaml.safe_load(f)
@@ -68,12 +69,16 @@ vectorstore = FAISS(
 #     model_kwargs={"temperature": 0, "max_length": 512}
 # )
 # ────────────────────────────── Initialize Local LLM ────────────────────────────── #
-
-# Create local LLM wrapper (using flan-t5-base or compatible model)
-llm = LocalTransformersLLM(  # TODO make config
-    model_name="google/gemma-2b", # "google/flan-t5-large",
-    max_length=1024
+llm = LocalTransformersLLM(  # Todo move to config
+    model_name="EleutherAI/gpt-neo-1.3B",  # Using GPT-Neo 1.3B causal model for local inference
+    max_length=512,  # Limit output to 512 tokens to keep responses concise and efficient
+    temperature=0,   # Set temperature to 0 for deterministic, focused output (no randomness)
+    do_sample=False, # Disable sampling to ensure repeatable and stable answers
+    num_beams=2      # Use beam search with 2 beams to improve answer quality by exploring multiple candidate
+    # sequences Beam search slightly increases latency and memory but produces more accurate and coherent responses,
+    # which is important for a QA system querying arXiv preprints where factual accuracy is critical
 )
+
 
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,

@@ -18,21 +18,30 @@ Benefits of using a local model with this wrapper:
 - No API keys or internet access required
 - Improved privacy: all data stays on your machine
 - Zero cost per call: no billing or rate limits
-- More flexibility: use any Hugging Face model (e.g. flan, Mistral, etc.)
+- More flexibility: use any Hugging Face model (e.g. flan, Mistral, GPT-Neo, etc.)
 
 You can plug this into LangChain chains like `RetrievalQA` exactly as you would
 an API-based model; without changing your pipeline logic.
 """
 
 from langchain.llms.base import LLM
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSeq2SeqLM,
+    AutoModelForCausalLM,
+    PreTrainedModel,
+)
 from typing import Optional, List, Mapping, Any
 import torch
 from pydantic import Field, PrivateAttr
 
+
 class LocalTransformersLLM(LLM):
     """
-    LangChain-compatible wrapper for a local Hugging Face Transformers Seq2Seq model.
+    LangChain-compatible wrapper for a local Hugging Face Transformers model.
+
+    Supports both Seq2Seq (encoder-decoder) and causal (decoder-only) models.
+    Automatically detects model architecture and loads the appropriate class.
 
     This class adapts a local transformer model so it behaves like an API-backed LLM
     in LangChain, allowing local inference without external API calls.
@@ -49,11 +58,16 @@ class LocalTransformersLLM(LLM):
     # Pydantic fields - required for LangChain to serialize/validate the model config.
     model_name: str = Field(default="google/flan-t5-base", description="HF model repo id")
     max_length: int = Field(default=512, description="Maximum output token length")
+    temperature: float = Field(default=0.7, description="Sampling temperature")
+    top_p: float = Field(default=0.9, description="Nucleus sampling top_p")
+    do_sample: bool = Field(default=True, description="Whether to sample or do greedy decoding")
+    num_beams: int = Field(default=1, description="Number of beams for beam search")
 
     # Private attributes (not part of model init/validation)
     _tokenizer: AutoTokenizer = PrivateAttr()
-    _model: AutoModelForSeq2SeqLM = PrivateAttr()
+    _model: PreTrainedModel = PrivateAttr()
     _device: torch.device = PrivateAttr()
+    _is_seq2seq: bool = PrivateAttr()
 
     def __init__(self, **kwargs):
         """
@@ -67,12 +81,19 @@ class LocalTransformersLLM(LLM):
         Args:
             kwargs: Should include 'model_name' and/or 'max_length' optionally.
         """
-        # Let Pydantic set fields (model_name, max_length) before further init
         super().__init__(**kwargs)
 
-        # Load tokenizer and model using the configured model_name
+        # Load tokenizer
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self._model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
+
+        # Determine model type (Seq2Seq or causal) by trying to load Seq2Seq first
+        try:
+            self._model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
+            self._is_seq2seq = True
+        except Exception:
+            # Fallback: try causal model loading
+            self._model = AutoModelForCausalLM.from_pretrained(self.model_name)
+            self._is_seq2seq = False
 
         # Select device (GPU if available, else CPU)
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -89,20 +110,30 @@ class LocalTransformersLLM(LLM):
         Returns:
             str: The generated output text from the model.
         """
-        # Tokenize input prompt and move tensors to the device
         inputs = self._tokenizer(prompt, return_tensors="pt").to(self._device)
 
-        # Generate output tokens using the model with max_length limit
-        outputs = self._model.generate(**inputs,
-                                       max_length=self.max_length,
-                                       min_length=100,
-                                       num_beams=2,
-                                       max_new_tokens=512,  # output size limit
-                                       early_stopping=False
-        )
+        if self._is_seq2seq:
+            outputs = self._model.generate(
+                **inputs,
+                max_length=self.max_length,
+                temperature=self.temperature,
+                top_p=self.top_p,
+                do_sample=self.do_sample,
+                num_beams=self.num_beams,
+                early_stopping=True,
+            )
+        else:
+            outputs = self._model.generate(
+                **inputs,
+                max_new_tokens=self.max_length,
+                temperature=self.temperature,
+                top_p=self.top_p,
+                do_sample=self.do_sample,
+                num_beams=self.num_beams,
+                early_stopping=True,
+            )
 
-        # Decode the token IDs back into a string, skipping special tokens
-        return self._tokenizer.decode(outputs[0], skip_special_tokens=True)
+        return self._tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
     @property
     def _identifying_params(self) -> Mapping[str, Any]:
@@ -112,7 +143,11 @@ class LocalTransformersLLM(LLM):
         Returns:
             dict: Model-specific metadata.
         """
-        return {"model_name": self.model_name, "max_length": self.max_length}
+        return {
+            "model_name": self.model_name,
+            "max_length": self.max_length,
+            "is_seq2seq": self._is_seq2seq,
+        }
 
     @property
     def _llm_type(self) -> str:
@@ -125,3 +160,4 @@ class LocalTransformersLLM(LLM):
             str: A string identifier for this custom LLM wrapper.
         """
         return "local_transformers"
+
