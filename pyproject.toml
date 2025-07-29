@@ -27,6 +27,7 @@ dependencies = [
     "flash-linear-attention (==0.3.0)",
     "transformers (>=4.48.0)",
     "hf-xet (>=1.1.5,<2.0.0)",
+    "accelerate (>=1.9.0,<2.0.0)",
 ]
 
 
