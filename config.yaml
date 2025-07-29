@@ -1,7 +1,7 @@
 embedding_model_name: "sentence-transformers/msmarco-distilbert-base-v4"
 top_k: 3
 
-raw_docs_path: "/vol/fob-vol5/mi22/koenigfd/data/raw/raw"  #"data/raw"
+raw_docs_path: "data/raw"  # "/vol/fob-vol5/mi22/koenigfd/data/raw/raw"  #
 
 arxiv_download:
   categories:
@@ -10,8 +10,8 @@ arxiv_download:
   month: 6
 
 FAISS:
-  index_path: "/data/faiss_index"  # "/vol/fob-vol5/mi22/koenigfd/data/faiss_index"
-  metadata_path: "/data/faiss_metadata.pkl"  # "/vol/fob-vol5/mi22/koenigfd/data/faiss_metadata.pkl"
+  index_path: "data/faiss_index"  # "/vol/fob-vol5/mi22/koenigfd/data/faiss_index"
+  metadata_path: "data/faiss_metadata.pkl"  # "/vol/fob-vol5/mi22/koenigfd/data/faiss_metadata.pkl"
 
 RAG:
   chunk_size: 1000
