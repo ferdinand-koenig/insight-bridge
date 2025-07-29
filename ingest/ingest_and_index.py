@@ -1,14 +1,17 @@
 import os
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
-from sentence_transformers import SentenceTransformer
-import faiss
 import numpy as np
 import pickle
 import yaml
+import faiss
+
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
-# Config loading and constants
+# --- Config loading and constants ---
 def load_config(path="config.yaml"):
     """Load YAML configuration file."""
     with open(path, "r") as f:
@@ -16,7 +19,7 @@ def load_config(path="config.yaml"):
 
 config = load_config()
 
-embedding_model_name = config.get("embedding_model_name", "sentence-transformers/sci-base")
+embedding_model_name = config.get("embedding_model_name", "sentence-transformers/msmarco-distilbert-base-v4")
 
 faiss_config = config.get("FAISS", {})
 INDEX_SAVE_PATH = faiss_config.get("index_path", "data/faiss_index")
@@ -29,36 +32,27 @@ RAG_CHUNK_SIZE = rag_config.get("chunk_size", 1000)
 RAG_CHUNK_OVERLAP = rag_config.get("chunk_overlap", 200)
 RAG_BATCH_SIZE = rag_config.get("batch_size", 4096)
 
-# Document chunking
+# --- Chunking ---
 def chunk_document(doc):
-    """Split a single langchain Document into smaller overlapping chunks."""
     splitter = RecursiveCharacterTextSplitter(chunk_size=RAG_CHUNK_SIZE, chunk_overlap=RAG_CHUNK_OVERLAP)
     return splitter.split_documents([doc])
 
-# Embedding batch of chunks
+# --- Embedding ---
 def embed_batch(chunks, model, show_progress_bar=False):
-    """Generate embeddings for a batch of chunks."""
     texts = [chunk.page_content for chunk in chunks]
-    embeddings = model.encode(texts, show_progress_bar=show_progress_bar)
+    embeddings = model.embed_documents(texts)
     return np.array(embeddings), chunks
 
-# Load and process one PDF file into embeddings and metadata
-def process_pdf_file(filepath, model, index):
-    """
-    Load one PDF file, chunk, embed, and add embeddings to FAISS index.
-    Returns metadata list for all chunks from this PDF.
-    """
+# --- Process a single PDF ---
+def process_pdf_file(filepath, model, index, docs):
     loader = PyPDFLoader(filepath)
     doc = loader.load()[0]
     chunks = chunk_document(doc)
-
-    metadata_list = []
 
     for i in range(0, len(chunks), RAG_BATCH_SIZE):
         batch_chunks = chunks[i : i + RAG_BATCH_SIZE]
         embeddings, batch_chunks = embed_batch(batch_chunks, model, show_progress_bar=False)
 
-        # Initialize FAISS index if not yet created
         if index is None:
             dimension = embeddings.shape[1]
             index = faiss.IndexFlatL2(dimension)
@@ -66,33 +60,28 @@ def process_pdf_file(filepath, model, index):
         index.add(embeddings)
 
         for chunk in batch_chunks:
-            meta = {
-                "source": chunk.metadata.get("source", os.path.basename(filepath)),
-                "page": chunk.metadata.get("page", None),
-                "text": chunk.page_content[:200]
-            }
-            metadata_list.append(meta)
+            chunk.metadata["source"] = chunk.metadata.get("source", os.path.basename(filepath))
+            docs.append(chunk)
 
-    return index, metadata_list
+    return index, docs
 
-# Save index to disk
-def save_faiss_index(index):
-    """Save FAISS index to disk."""
-    faiss.write_index(index, INDEX_SAVE_PATH)
+# --- Save LangChain FAISS index ---
+def save_langchain_faiss(faiss_store):
+    faiss.write_index(faiss_store.index, INDEX_SAVE_PATH)
     print(f"\nFAISS index saved to {INDEX_SAVE_PATH}")
 
-# Save metadata to disk
-def save_metadata(metadata_list):
-    """Save metadata list as pickle file."""
     with open(METADATA_SAVE_PATH, "wb") as f:
-        pickle.dump(metadata_list, f)
+        pickle.dump({
+            "docstore": faiss_store.docstore,
+            "index_to_docstore_id": faiss_store.index_to_docstore_id
+        }, f)
     print(f"Metadata saved to {METADATA_SAVE_PATH}")
 
+# --- Main indexing pipeline ---
 def main():
-    """Main pipeline with Rich progress bar and clean function calls."""
-    model = SentenceTransformer(embedding_model_name)
+    model = HuggingFaceEmbeddings(model_name=embedding_model_name)
     index = None
-    all_metadata = []
+    docs = []
 
     pdf_files = [f for f in os.listdir(RAW_DOCS_PATH) if f.endswith(".pdf")]
     total_files = len(pdf_files)
@@ -109,13 +98,12 @@ def main():
 
         for filename in pdf_files:
             filepath = os.path.join(RAW_DOCS_PATH, filename)
-            index, metadata = process_pdf_file(filepath, model, index)
-            all_metadata.extend(metadata)
+            index, docs = process_pdf_file(filepath, model, index, docs)
             progress.update(task, advance=1)
 
     if index is not None:
-        save_faiss_index(index)
-        save_metadata(all_metadata)
+        faiss_store = FAISS.from_documents(docs, embedding=model)
+        save_langchain_faiss(faiss_store)
     else:
         print("No PDFs found or no data indexed.")
 
