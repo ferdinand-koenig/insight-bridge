@@ -17,6 +17,8 @@ Dependencies:
 - pyyaml
 """
 import pickle
+import time
+
 import faiss
 import yaml
 
@@ -70,11 +72,11 @@ vectorstore = FAISS(
 # )
 # ────────────────────────────── Initialize Local LLM ────────────────────────────── #
 llm = LocalTransformersLLM(  # Todo move to config
-    model_name="EleutherAI/gpt-neo-1.3B",  # Using GPT-Neo 1.3B causal model for local inference
-    max_length=512,  # Limit output to 512 tokens to keep responses concise and efficient
+    model_name="Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    max_length=256,  # Limit output to 512 tokens to keep responses concise and efficient
     temperature=0,   # Set temperature to 0 for deterministic, focused output (no randomness)
     do_sample=False, # Disable sampling to ensure repeatable and stable answers
-    num_beams=2      # Use beam search with 2 beams to improve answer quality by exploring multiple candidate
+    num_beams=1      # Use beam search with 2 beams to improve answer quality by exploring multiple candidate
     # sequences Beam search slightly increases latency and memory but produces more accurate and coherent responses,
     # which is important for a QA system querying arXiv preprints where factual accuracy is critical
 )
@@ -95,8 +97,19 @@ def answer_question(question: str) -> str:
     Returns:
         str: The generated answer from the local LLM.
     """
-    return qa_chain.run(question)
+    docs = vectorstore.as_retriever(search_kwargs={"k": top_k}).get_relevant_documents(question)
+    print(f"\nRetrieved {len(docs)} documents:")
+    for i, doc in enumerate(docs):
+        print(f"--- Doc {i + 1} ---\n{doc.page_content}...\n")
+
+    start_time = time.time()
+    answer = qa_chain.run(question)
+    end_time = time.time()
+    elapsed = end_time - start_time
+    print(f"Time taken for inference: {elapsed:.2f} seconds")
+    return answer
 
 if __name__ == "__main__":
+
     print("Running test query...")
     print(answer_question("What is your knowledge base about?"))
