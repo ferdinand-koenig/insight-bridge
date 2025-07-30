@@ -23,6 +23,7 @@ Benefits of using a local model with this wrapper:
 You can plug this into LangChain chains like `RetrievalQA` exactly as you would
 an API-based model; without changing your pipeline logic.
 """
+import subprocess
 
 from langchain.llms.base import LLM
 from transformers import (
@@ -62,6 +63,7 @@ class LocalTransformersLLM(LLM):
     top_p: float = Field(default=0.9, description="Nucleus sampling top_p")
     do_sample: bool = Field(default=True, description="Whether to sample or do greedy decoding")
     num_beams: int = Field(default=1, description="Number of beams for beam search")
+    use_llamacpp: bool = Field(default=False, description="Whether to use llama.cpp backend")
 
     # Private attributes (not part of model init/validation)
     _tokenizer: AutoTokenizer = PrivateAttr()
@@ -69,7 +71,7 @@ class LocalTransformersLLM(LLM):
     _device: torch.device = PrivateAttr()
     _is_seq2seq: bool = PrivateAttr()
 
-    def __init__(self, **kwargs):
+    def __init__(self, model_name: str, use_llamacpp: bool = None, **kwargs):
         """
         Initialize the local Hugging Face tokenizer and model.
 
@@ -82,6 +84,13 @@ class LocalTransformersLLM(LLM):
             kwargs: Should include 'model_name' and/or 'max_length' optionally.
         """
         super().__init__(**kwargs)
+        if use_llamacpp is None:
+            use_llamacpp = model_name.strip().endswith(".gguf")
+        self.use_llamacpp = use_llamacpp
+
+        if self.use_llamacpp:
+            # No need to load HF model if llama.cpp is used
+            return
 
         # Load tokenizer
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
@@ -104,6 +113,38 @@ class LocalTransformersLLM(LLM):
         self._model.to(self._device)
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        if self.use_llamacpp:
+            return self._call_llamacpp(prompt)
+        return self._call_transformers(prompt)
+
+    def _call_llamacpp(self, prompt: str) -> str:
+        """
+        Calls llama.cpp binary from subprocess.
+        Assumes `llama` binary is available in PATH or working directory.
+
+        Returns:
+            str: Model output.
+        """
+        llama_bin = "/model"  # Adjust path if needed
+        model_path = self.model_name  # This should point to a .gguf model file
+        n_predict = str(self.max_length)
+
+        args = [
+            llama_bin,
+            "-m", model_path,
+            "-p", prompt,
+            "-n", n_predict,
+            "--temp", str(self.temperature),
+            "--top-p", str(self.top_p)
+        ]
+
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, check=True)
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"llama.cpp failed: {e.stderr}") from e
+
+    def _call_transformers(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         """
         Core LangChain method to generate text from the model given a prompt.
 
@@ -158,6 +199,7 @@ class LocalTransformersLLM(LLM):
             "model_name": self.model_name,
             "max_length": self.max_length,
             "is_seq2seq": self._is_seq2seq,
+            "use_llamacpp": self.use_llamacpp
         }
 
     @property
@@ -170,5 +212,5 @@ class LocalTransformersLLM(LLM):
         Returns:
             str: A string identifier for this custom LLM wrapper.
         """
-        return "local_transformers"
+        return "llama.cpp" if self.use_llamacpp else "local_transformers"
 

@@ -17,3 +17,7 @@ RAG:
   chunk_size: 700
   chunk_overlap: 100
   batch_size: 4096 * 2  # Adjust to memory limits
+
+gradio_server:
+  host: "0.0.0.0"    # or "127.0.0.1" for local only
+  port: 7860

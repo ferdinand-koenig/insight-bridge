@@ -73,7 +73,7 @@ vectorstore = FAISS(
 # )
 # ────────────────────────────── Initialize Local LLM ────────────────────────────── #
 llm = LocalTransformersLLM(  # Todo move to config
-    model_name="Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    model_name="tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", # "Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     max_length=256,  # Limit output to 512 tokens to keep responses concise and efficient
     temperature=0.1,   # Set temperature to 0 for deterministic, focused output (no randomness)
     do_sample=False, # Disable sampling to ensure repeatable and stable answers
@@ -81,7 +81,7 @@ llm = LocalTransformersLLM(  # Todo move to config
     num_beams=1,     # Use beam search with 2 beams to improve answer quality by exploring multiple candidate
     # sequences Beam search slightly increases latency and memory but produces more accurate and coherent responses,
     # which is important for a QA system querying arXiv preprints where factual accuracy is critical
-    stop=["\n"]
+    stop=["\n"],
 )
 
 QA_PROMPT = PromptTemplate(
