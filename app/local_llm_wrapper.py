@@ -89,6 +89,7 @@ class LocalTransformersLLM(LLM):
         self.use_llamacpp = use_llamacpp
 
         if self.use_llamacpp:
+            self._is_seq2seq = False
             # No need to load HF model if llama.cpp is used
             return
 
