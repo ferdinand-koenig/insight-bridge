@@ -125,6 +125,9 @@ class LocalTransformersLLM(LLM):
                 do_sample=self.do_sample,
                 num_beams=self.num_beams,
                 early_stopping=True,
+                eos_token_id=self._tokenizer.eos_token_id,
+                # Stop generation when the "end-of-sequence" token is produced.
+                pad_token_id=self._tokenizer.pad_token_id  # Use padding token ID to handle shorter sequences if needed.
             )
         else:
             outputs = self._model.generate(
@@ -135,6 +138,10 @@ class LocalTransformersLLM(LLM):
                 do_sample=self.do_sample,
                 num_beams=self.num_beams,
                 early_stopping=True,
+                eos_token_id=self._tokenizer.eos_token_id,
+                # Stop generation when the "end-of-sequence" token is produced.
+                pad_token_id=self._tokenizer.pad_token_id  # Use padding token ID to handle shorter sequences if needed.
+
             )
 
         return self._tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
