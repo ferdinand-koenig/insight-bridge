@@ -3,8 +3,15 @@
 ########################################
 FROM ghcr.io/ggml-org/llama.cpp:light AS builder
 
+ARG PYTHON_VERSION=3.10
+
 # 1. Install Python and pip
-RUN apt-get update && apt-get install -y python3 python3-pip
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python${PYTHON_VERSION} \
+        python${PYTHON_VERSION}-venv \
+        python${PYTHON_VERSION}-distutils \
+        python3-pip
 
 # 2. Install pinned Poetry version
 RUN pip3 install poetry==2.1.2
@@ -37,12 +44,21 @@ RUN poetry install --without dev
 ########################################
 FROM ghcr.io/ggml-org/llama.cpp:light AS runtime
 
-# 8. Add Python for runtime
-RUN apt-get update && apt-get install -y python3
+ARG PYTHON_VERSION=3.10
 
-# 9. Set up environment for virtualenv
+# 8. Install matching Python version
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python${PYTHON_VERSION} \
+        python${PYTHON_VERSION}-venv \
+        python${PYTHON_VERSION}-distutils \
+        python3-pip
+
+# 9. Set up environment for virtualenv and add path for llama lib
 ENV VIRTUAL_ENV=/insight-bridge/.venv \
-    PATH="/insight-bridge/.venv/bin:$PATH"
+    PATH="/insight-bridge/.venv/bin:$PATH" \
+    LD_LIBRARY_PATH=/app:${LD_LIBRARY_PATH:-}
+
 
 WORKDIR /insight-bridge
 
