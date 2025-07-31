@@ -24,6 +24,7 @@ You can plug this into LangChain chains like `RetrievalQA` exactly as you would
 an API-based model; without changing your pipeline logic.
 """
 import subprocess
+import os
 
 from langchain.llms.base import LLM
 from transformers import (
@@ -64,6 +65,7 @@ class LocalTransformersLLM(LLM):
     do_sample: bool = Field(default=True, description="Whether to sample or do greedy decoding")
     num_beams: int = Field(default=1, description="Number of beams for beam search")
     use_llamacpp: bool = Field(default=False, description="Whether to use llama.cpp backend")
+    context_length: int = Field(default=2048, description="Context length (n_ctx) for llama.cpp and model")
 
     # Private attributes (not part of model init/validation)
     _tokenizer: AutoTokenizer = PrivateAttr()
@@ -87,6 +89,8 @@ class LocalTransformersLLM(LLM):
         if use_llamacpp is None:
             use_llamacpp = model_name.strip().endswith(".gguf")
         self.use_llamacpp = use_llamacpp
+        print(f"[debug] use_llamacpp: {use_llamacpp}")
+        self.model_name = model_name
 
         if self.use_llamacpp:
             self._is_seq2seq = False
@@ -126,17 +130,23 @@ class LocalTransformersLLM(LLM):
         Returns:
             str: Model output.
         """
-        llama_bin = "/model"  # Adjust path if needed
+        llama_bin = "/app/llama-cli"  # Adjust path if needed
         model_path = self.model_name  # This should point to a .gguf model file
         n_predict = str(self.max_length)
+        n_ctx = str(self.context_length)
+
+        num_threads = os.cpu_count()
+        print(f"[Debug] llama.cpp instructed to use all {num_threads} Threads")
 
         args = [
             llama_bin,
             "-m", model_path,
             "-p", prompt,
             "-n", n_predict,
+            "-c", n_ctx,
             "--temp", str(self.temperature),
-            "--top-p", str(self.top_p)
+            "--top-p", str(self.top_p),
+            "-t", str(num_threads)
         ]
 
         try:
@@ -199,6 +209,7 @@ class LocalTransformersLLM(LLM):
         return {
             "model_name": self.model_name,
             "max_length": self.max_length,
+            "context_length": self.context_length,
             "is_seq2seq": self._is_seq2seq,
             "use_llamacpp": self.use_llamacpp
         }
