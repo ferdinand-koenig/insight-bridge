@@ -23,7 +23,6 @@ Benefits of using a local model with this wrapper:
 You can plug this into LangChain chains like `RetrievalQA` exactly as you would
 an API-based model; without changing your pipeline logic.
 """
-import subprocess
 import os
 
 from langchain.llms.base import LLM
@@ -36,6 +35,27 @@ from transformers import (
 from typing import Optional, List, Mapping, Any
 import torch
 from pydantic import Field, PrivateAttr
+
+def _load_llama_backend():
+    import ctypes
+
+    # Load libllama.so or libggml.so if needed
+    llama_lib = ctypes.CDLL("./libllama.so")
+
+    # Try to call ggml_backend_load_all (if present)
+    try:
+        ret = llama_lib.ggml_backend_load_all()
+        print(f"Successfully called ggml_backend_load_all(), returned: {ret}")
+    except AttributeError as e:
+        print("ggml_backend_load_all not found:", e)
+
+_load_llama_backend()
+# ruff: noqa
+# advice ruff to not mark the following import. The manual loading of the backend needs to happen before the import
+from llama_cpp import Llama
+# ruff: enable
+
+print(os.getcwd())
 
 
 class LocalTransformersLLM(LLM):
@@ -72,6 +92,7 @@ class LocalTransformersLLM(LLM):
     _model: PreTrainedModel = PrivateAttr()
     _device: torch.device = PrivateAttr()
     _is_seq2seq: bool = PrivateAttr()
+    _llama_cpp_model: Optional[Llama] = PrivateAttr(None)
 
     def __init__(self, model_name: str, use_llamacpp: bool = None, **kwargs):
         """
@@ -93,8 +114,12 @@ class LocalTransformersLLM(LLM):
         self.model_name = model_name
 
         if self.use_llamacpp:
+            _load_llama_backend()
             self._is_seq2seq = False
-            # No need to load HF model if llama.cpp is used
+            # Initialize llama-cpp-python model object
+            self._llama_cpp_model = Llama(self.model_name,
+                                          n_ctx=self.context_length,
+                                          n_threads=os.cpu_count())
             return
 
         # Load tokenizer
@@ -130,30 +155,20 @@ class LocalTransformersLLM(LLM):
         Returns:
             str: Model output.
         """
-        llama_bin = "/app/llama-cli"  # Adjust path if needed
-        model_path = self.model_name  # This should point to a .gguf model file
-        n_predict = str(self.max_length)
-        n_ctx = str(self.context_length)
+        if self._llama_cpp_model is None:
+            raise RuntimeError("llama-cpp-python model not initialized")
 
-        num_threads = os.cpu_count()
-        print(f"[Debug] llama.cpp instructed to use all {num_threads} Threads")
+        response = self._llama_cpp_model.create_completion(
+            prompt = prompt,
+            max_tokens = self.max_length,
+            temperature = self.temperature,
+            top_p = self.top_p,
+            stop = None,
+            echo = False,
+        )
+        print(response)
 
-        args = [
-            llama_bin,
-            "-m", model_path,
-            "-p", prompt,
-            "-n", n_predict,
-            "-c", n_ctx,
-            "--temp", str(self.temperature),
-            "--top-p", str(self.top_p),
-            "-t", str(num_threads)
-        ]
-
-        try:
-            result = subprocess.run(args, capture_output=True, text=True, check=True)
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"llama.cpp failed: {e.stderr}") from e
+        return response["choices"][0]["text"].strip()
 
     def _call_transformers(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         """
