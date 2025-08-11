@@ -1,5 +1,5 @@
 embedding_model_name: "sentence-transformers/msmarco-distilbert-base-v4"
-top_k: 2
+top_k: 3
 
 raw_docs_path: "data/raw"  # "/vol/fob-vol5/mi22/koenigfd/data/raw/raw"  #
 
@@ -17,3 +17,7 @@ RAG:
   chunk_size: 700
   chunk_overlap: 100
   batch_size: 4096 * 2  # Adjust to memory limits
+
+gradio_server:
+  host: "0.0.0.0"    # or "127.0.0.1" for local only
+  port: 7860

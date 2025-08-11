@@ -17,12 +17,16 @@ Dependencies:
 - pyyaml
 """
 import pickle
+import time
+import re
+
 import faiss
 import yaml
 
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
 
 from app.local_llm_wrapper import LocalTransformersLLM
 
@@ -70,20 +74,67 @@ vectorstore = FAISS(
 # )
 # ────────────────────────────── Initialize Local LLM ────────────────────────────── #
 llm = LocalTransformersLLM(  # Todo move to config
-    model_name="EleutherAI/gpt-neo-1.3B",  # Using GPT-Neo 1.3B causal model for local inference
-    max_length=512,  # Limit output to 512 tokens to keep responses concise and efficient
-    temperature=0,   # Set temperature to 0 for deterministic, focused output (no randomness)
+    model_name="/model/phi-2.Q4_K_M.gguf",  # "/model/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", # "Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    max_length=256,  # Limit output to 512 tokens to keep responses concise and efficient
+    temperature=0.1,   # Set temperature to 0 for deterministic, focused output (no randomness)
     do_sample=False, # Disable sampling to ensure repeatable and stable answers
-    num_beams=2      # Use beam search with 2 beams to improve answer quality by exploring multiple candidate
+    no_repeat_ngram_size=3,  # prevent the model from repeating the same sequence of words (n-grams) during text gen.
+    num_beams=1,     # Use beam search with 2 beams to improve answer quality by exploring multiple candidate
     # sequences Beam search slightly increases latency and memory but produces more accurate and coherent responses,
     # which is important for a QA system querying arXiv preprints where factual accuracy is critical
+    stop=["\n"],
 )
 
+QA_PROMPT = PromptTemplate(
+    input_variables=["context", "question"],
+    template=(
+        "Instruct: Using the context below, answer the question accurately and concisely."
+        "You are a QA Assistant for Preprints on arXiv in cs.CL (NLP, LLMs), with knowledge of June 2025. "
+        "If asked about your own purpose or capabilities, respond clearly with your own role as an assistant. "
+        "Otherwise, use the context below to answer the question clearly and concisely in one paragraph. "
+        "If the context doesn't contain the answer, say 'I don't know.'\n\n"
+        "Context:\n{context}\n\n"
+        "Question: {question}\n"
+        "Output:"
+    )
+    # template=(
+    #     "You are a QA Assistant for Preprints on arXiv in cs.CL (NLP, LLMs), with knowledge of June 2025.\n"
+    #     "If asked about your own purpose or capabilities, respond clearly with your own role as an assistant.\n"
+    #     "Otherwise, use the context below to answer the question clearly and concisely in one paragraph.\n"
+    #     "If the context doesn't contain the answer, say 'I don't know.'\n"
+    #     "You are warm and professional.\n"
+    #     "In your answer, please **restate relevant information from the context** to support your response.\n"
+    #     "Avoid repeating the same phrases or ideas.\n"
+    #     "Answer the question thoroughly and clearly, using as much detail as needed,\n"
+    #     "but without repeating phrases or introducing irrelevant personal background.\n"
+    #     "Avoid bullet points or self-descriptions.\n\n"
+    #     "Context:\n{context}\n\n"
+    #     "Question: {question}\n"
+    #     "Answer:"
+    # )
+)
 
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
-    retriever=vectorstore.as_retriever(search_kwargs={"k": top_k})
+    retriever=vectorstore.as_retriever(search_kwargs={"k": top_k}),
+    chain_type="stuff",
+    chain_type_kwargs={"prompt": QA_PROMPT},
+    return_source_documents=True
 )
+
+def clean_answer(raw_output: str) -> str:
+    # Check for either "Answer:" or "Output:"
+    # Step 1: Remove all "Question:" lines
+    no_questions = re.sub(r'Question:.*?\n', '', raw_output)
+
+    # Step 2: Remove all "Output:" labels but keep the text after
+    no_outputs = re.sub(r'Output:', '', no_questions)
+
+    # Step 3: Remove extra newlines and merge text into one paragraph, replace multiple spaces/newlines with one space
+    clean_text = re.sub(r'\s+', ' ', no_outputs).strip()
+
+    return clean_text
+
 
 def answer_question(question: str) -> str:
     """
@@ -95,8 +146,21 @@ def answer_question(question: str) -> str:
     Returns:
         str: The generated answer from the local LLM.
     """
-    return qa_chain.run(question)
+    print("\n\n\nQuestion:", question)
+    docs = vectorstore.as_retriever(search_kwargs={"k": top_k}).get_relevant_documents(question)
+    print(f"\nRetrieved {len(docs)} documents:")
+    for i, doc in enumerate(docs):
+        print(f"--- Doc {i + 1} ---<doc>\n{doc.page_content}<\doc>\n")
+
+    start_time = time.time()
+    answer = qa_chain.run(question)
+    end_time = time.time()
+    elapsed = end_time - start_time
+    print("\nQuestion:", question)
+    print(f"Time taken for inference: {elapsed:.2f} seconds")
+    return clean_answer(answer)
 
 if __name__ == "__main__":
+
     print("Running test query...")
     print(answer_question("What is your knowledge base about?"))

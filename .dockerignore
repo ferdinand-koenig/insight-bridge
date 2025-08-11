@@ -1,0 +1,11 @@
+*.docx
+*.pdf
+data/raw/
+__pycache__/
+.idea/
+.ruff_cache/
+model/
+
+# Git
+.git/
+.gitignore

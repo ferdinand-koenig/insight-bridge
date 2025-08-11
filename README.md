@@ -28,13 +28,56 @@ Python, Pre-commit, fluff, ...
 
 ## Setup
 
-### Requirements
+
+
+### Inference only with Docker container
+#### Requirements
+- Docker
+
+#### Steps
+```bash
+docker run -it --rm \
+  -v /path/on/host/model.bin:/app/models/model.bin \
+  -p 7860:7860 \
+  your-image-name
+  ```
+
+* `-v /path/on/host/model.bin:/app/models/model.bin`  
+  Mounts the model file from your host machine into the container at `/app/models/model.bin` (adjust paths as needed)
+  
+* `-p 7860:7860`  
+  Maps the container port 7860 to your host, if your app serves on that port
+  
+* `--rm`  
+  Automatically removes the container when it stops
+  
+* `-it`  
+  Runs the container with an interactive terminal
+
+E.g.,
+```bash
+docker run -it --rm -v .\model\tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf:/insight-bridge/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -v .\config.yaml:/insight-bridge/config.yaml -p 7860:7860 --entrypoint python3 insight-bridge -m app.main
+```
+
+#### Development with Docker
+To build a new build, use
+```bash
+docker build -t insight-bridge .
+```
+
+Run with following command to also copy the `app` directory for continuous development.
+```bash
+docker run -it --rm -v .\model\phi-2.Q4_K_M.gguf:/model/phi-2.Q4_K_M.gguf -v .\config.yaml:/insight-bridge/config.yaml -v .\app:/insight-bridge/app -p 7860:7860 --entrypoint python3 insight-bridge -m app.main
+```
+
+
+### Local installation
+#### Requirements
 
 - Python 3.10 (>=3.10, <4.0)  
 - Poetry for dependency management
 
-### Installation
-
+#### Steps
 1. Clone the repository
 
    ```bash
@@ -44,10 +87,12 @@ Python, Pre-commit, fluff, ...
 	
 2. Install dependencies
     ```bash
-    poetry install
+    poetry install --only main
     ```
+   Run `poetry install` instead if you plan to develop as this will also 
+   install dev dependencies like linter and pre-commit
 
-3. Install pre-commit
+3. [Development only] Install pre-commit 
     ```bash
    poetry run pre-commit install
     ```
@@ -56,10 +101,10 @@ Python, Pre-commit, fluff, ...
 
 Place PDF documents inside the `data/raw/` directory.
 
-## Usage
+
+#### Usage
 
 To run the document ingestion and indexing pipeline:
-
 	```bash
 	poetry run python ingest/ingest_and_index.py
 	```
