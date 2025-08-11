@@ -18,6 +18,7 @@ Dependencies:
 """
 import pickle
 import time
+import re
 
 import faiss
 import yaml
@@ -73,7 +74,7 @@ vectorstore = FAISS(
 # )
 # ────────────────────────────── Initialize Local LLM ────────────────────────────── #
 llm = LocalTransformersLLM(  # Todo move to config
-    model_name="/model/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", # "Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    model_name="/model/phi-2.Q4_K_M.gguf",  # "/model/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", # "Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     max_length=256,  # Limit output to 512 tokens to keep responses concise and efficient
     temperature=0.1,   # Set temperature to 0 for deterministic, focused output (no randomness)
     do_sample=False, # Disable sampling to ensure repeatable and stable answers
@@ -87,43 +88,52 @@ llm = LocalTransformersLLM(  # Todo move to config
 QA_PROMPT = PromptTemplate(
     input_variables=["context", "question"],
     template=(
-        """
-        You are a QA Assistant for Preprints on arXiv in cs.CL (NLP, LLMs), with knowledge of June 2025.
-        When asked about your knowledge, respond by clearly stating your scope of expertise.
-        Use the context below to answer the question clearly and concisely in one paragraph.
-        If the context doesn't contain the answer, say 'I don't know.'
-        You are warm and professional.
-        In your answer, please **restate relevant information from the context** to support your response.
-        Avoid repeating the same phrases or ideas.
-        Answer the question thoroughly and clearly, using as much detail as needed,
-        but without repeating phrases or introducing irrelevant personal background.
-        Avoid bullet points or self-descriptions.
-        
-        Context:
-        {context}
-        
-        Question: {question}
-        Answer:
-        """
+        "Instruct: Using the context below, answer the question accurately and concisely."
+        "You are a QA Assistant for Preprints on arXiv in cs.CL (NLP, LLMs), with knowledge of June 2025. "
+        "If asked about your own purpose or capabilities, respond clearly with your own role as an assistant. "
+        "Otherwise, use the context below to answer the question clearly and concisely in one paragraph. "
+        "If the context doesn't contain the answer, say 'I don't know.'\n\n"
+        "Context:\n{context}\n\n"
+        "Question: {question}\n"
+        "Output:"
     )
+    # template=(
+    #     "You are a QA Assistant for Preprints on arXiv in cs.CL (NLP, LLMs), with knowledge of June 2025.\n"
+    #     "If asked about your own purpose or capabilities, respond clearly with your own role as an assistant.\n"
+    #     "Otherwise, use the context below to answer the question clearly and concisely in one paragraph.\n"
+    #     "If the context doesn't contain the answer, say 'I don't know.'\n"
+    #     "You are warm and professional.\n"
+    #     "In your answer, please **restate relevant information from the context** to support your response.\n"
+    #     "Avoid repeating the same phrases or ideas.\n"
+    #     "Answer the question thoroughly and clearly, using as much detail as needed,\n"
+    #     "but without repeating phrases or introducing irrelevant personal background.\n"
+    #     "Avoid bullet points or self-descriptions.\n\n"
+    #     "Context:\n{context}\n\n"
+    #     "Question: {question}\n"
+    #     "Answer:"
+    # )
 )
 
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     retriever=vectorstore.as_retriever(search_kwargs={"k": top_k}),
     chain_type="stuff",
-    chain_type_kwargs={"prompt": QA_PROMPT}
+    chain_type_kwargs={"prompt": QA_PROMPT},
+    return_source_documents=True
 )
 
 def clean_answer(raw_output: str) -> str:
-    # Find the "Answer:" keyword and take everything after it
-    if "Answer:" in raw_output:
-        answer = raw_output.split("Answer:")[-1].strip()
-        # Optionally stop at first double newline or special delimiter
-        answer = answer.split("\n\n")[0].strip()
-        return answer
-    else:
-        return raw_output.strip()
+    # Check for either "Answer:" or "Output:"
+    # Step 1: Remove all "Question:" lines
+    no_questions = re.sub(r'Question:.*?\n', '', raw_output)
+
+    # Step 2: Remove all "Output:" labels but keep the text after
+    no_outputs = re.sub(r'Output:', '', no_questions)
+
+    # Step 3: Remove extra newlines and merge text into one paragraph, replace multiple spaces/newlines with one space
+    clean_text = re.sub(r'\s+', ' ', no_outputs).strip()
+
+    return clean_text
 
 
 def answer_question(question: str) -> str:
@@ -136,15 +146,17 @@ def answer_question(question: str) -> str:
     Returns:
         str: The generated answer from the local LLM.
     """
+    print("\n\n\nQuestion:", question)
     docs = vectorstore.as_retriever(search_kwargs={"k": top_k}).get_relevant_documents(question)
     print(f"\nRetrieved {len(docs)} documents:")
     for i, doc in enumerate(docs):
-        print(f"--- Doc {i + 1} ---\n{doc.page_content}...\n")
+        print(f"--- Doc {i + 1} ---<doc>\n{doc.page_content}<\doc>\n")
 
     start_time = time.time()
     answer = qa_chain.run(question)
     end_time = time.time()
     elapsed = end_time - start_time
+    print("\nQuestion:", question)
     print(f"Time taken for inference: {elapsed:.2f} seconds")
     return clean_answer(answer)
 
