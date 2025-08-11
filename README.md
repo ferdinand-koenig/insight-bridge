@@ -65,6 +65,11 @@ To build a new build, use
 docker build -t insight-bridge .
 ```
 
+Run with following command to also copy the `app` directory for continuous development.
+```bash
+docker run -it --rm -v .\model\phi-2.Q4_K_M.gguf:/model/phi-2.Q4_K_M.gguf -v .\config.yaml:/insight-bridge/config.yaml -v .\app:/insight-bridge/app -p 7860:7860 --entrypoint python3 insight-bridge -m app.main
+```
+
 
 ### Local installation
 #### Requirements
