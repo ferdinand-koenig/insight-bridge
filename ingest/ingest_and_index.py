@@ -3,6 +3,7 @@ import numpy as np
 import pickle
 import yaml
 import faiss
+from simpleeval import simple_eval
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
@@ -30,7 +31,9 @@ RAW_DOCS_PATH = config.get("raw_docs_path", "data/raw")
 rag_config = config.get("RAG", {})
 RAG_CHUNK_SIZE = rag_config.get("chunk_size", 1000)
 RAG_CHUNK_OVERLAP = rag_config.get("chunk_overlap", 200)
-RAG_BATCH_SIZE = rag_config.get("batch_size", 4096)
+RAG_BATCH_SIZE = rag_config.get("batch_size", 4096) # e.g. "4096 * 2"
+RAG_BATCH_SIZE = simple_eval(RAG_BATCH_SIZE) if isinstance(RAG_BATCH_SIZE, str) else RAG_BATCH_SIZE
+
 
 # --- Chunking ---
 def chunk_document(doc):
