@@ -16,12 +16,14 @@ Dependencies:
 - langchain-huggingface
 - pyyaml
 """
+import os
 import pickle
 import time
 import re
 
 import faiss
 import yaml
+
 
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -123,7 +125,6 @@ qa_chain = RetrievalQA.from_chain_type(
 )
 
 def clean_answer(raw_output: str) -> str:
-    # Check for either "Answer:" or "Output:"
     # Step 1: Remove all "Question:" lines
     no_questions = re.sub(r'Question:.*?\n', '', raw_output)
 
@@ -133,7 +134,36 @@ def clean_answer(raw_output: str) -> str:
     # Step 3: Remove extra newlines and merge text into one paragraph, replace multiple spaces/newlines with one space
     clean_text = re.sub(r'\s+', ' ', no_outputs).strip()
 
+    # Cut off everything after last full stop to avoid trailing incomplete sentences
+    last_period_pos = clean_text.rfind('.')
+    if last_period_pos != -1:
+        clean_text = clean_text[:last_period_pos + 1]
+
     return clean_text
+
+
+def format_sources_with_excerpt_and_arxiv_link(docs):
+    formatted_sources = []
+    for doc in docs:
+        # Get excerpt (e.g. first 200 chars or so)
+        excerpt = doc.page_content[:300].strip().replace('\n', ' ') + " [...]"
+
+        source_path = doc.metadata.get("source", None)
+        arxiv_link = source_path  # default fallback
+
+        if source_path:
+            filename = os.path.basename(source_path)  # e.g. "2506.00783v1.pdf"
+            paper_id = os.path.splitext(filename)[0]  # e.g. "2506.00783v1"
+
+            # Simple arXiv ID pattern match
+            if re.match(r"\d{4}\.\d{4,5}v\d+", paper_id) or re.match(r"[a-z\-]+/\d{7}v\d+", paper_id):
+                arxiv_link = f"https://arxiv.org/abs/{paper_id}"
+
+        # Format the output: excerpt + clickable arXiv link
+        formatted_sources.append(
+            f"{excerpt}<br><a href='{arxiv_link}' target='_blank'>📄 View Paper {paper_id}</a>"
+        )
+    return "<hr>".join(formatted_sources)
 
 
 def answer_question(question: str) -> str:
@@ -153,14 +183,22 @@ def answer_question(question: str) -> str:
         print(f"--- Doc {i + 1} ---<doc>\n{doc.page_content}<\doc>\n")
 
     start_time = time.time()
-    answer = qa_chain.run(question)
+    result = qa_chain.invoke({'query': question})
     end_time = time.time()
     elapsed = end_time - start_time
     print("\nQuestion:", question)
-    print(f"Time taken for inference: {elapsed:.2f} seconds")
-    return clean_answer(answer)
+    print(f"Time taken for inference: {elapsed:.1f} seconds")
+    # Build HTML for sources with clickable links
+    sources_html = format_sources_with_excerpt_and_arxiv_link(result["source_documents"])
+    html_string = (f"{clean_answer(result['result'])}<br>"
+                   f"<hr style=\"border-top: 3px double #333;\">"
+                   f"<h3>Sources (First 300 characters per document):</h3>"
+                   f"<br>{sources_html}"
+                   f"<br><hr style=\"border-top: 3px double #333;\">"
+                   f"Time taken: {elapsed//60:.0f} minute(s) and {elapsed % 60:.1f} second(s)")
+    return html_string
+
 
 if __name__ == "__main__":
-
     print("Running test query...")
     print(answer_question("What is your knowledge base about?"))
