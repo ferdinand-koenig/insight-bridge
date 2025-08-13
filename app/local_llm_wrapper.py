@@ -86,6 +86,8 @@ class LocalTransformersLLM(LLM):
     num_beams: int = Field(default=1, description="Number of beams for beam search")
     use_llamacpp: bool = Field(default=False, description="Whether to use llama.cpp backend")
     context_length: int = Field(default=2048, description="Context length (n_ctx) for llama.cpp and model")
+    n_threads: int = Field(default=os.cpu_count(), description="Number of CPU threads for llama.cpp. "
+                                                               "Default: All / As fast as possible")
 
     # Private attributes (not part of model init/validation)
     _tokenizer: AutoTokenizer = PrivateAttr()
@@ -119,7 +121,8 @@ class LocalTransformersLLM(LLM):
             # Initialize llama-cpp-python model object
             self._llama_cpp_model = Llama(self.model_name,
                                           n_ctx=self.context_length,
-                                          n_threads=os.cpu_count())
+                                          n_threads=self.n_threads)
+            print(f"Set threads to {self.n_threads}")
             return
 
         # Load tokenizer
@@ -143,6 +146,9 @@ class LocalTransformersLLM(LLM):
         self._model.to(self._device)
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        print("\n\n------------------------------------------\n"
+              "[DEBUG] Prompt passed to tokenizer and model:\n")
+        print(prompt)
         if self.use_llamacpp:
             return self._call_llamacpp(prompt)
         return self._call_transformers(prompt)
