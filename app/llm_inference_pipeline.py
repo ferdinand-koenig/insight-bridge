@@ -95,32 +95,23 @@ with open("prompt_template.yaml", "r") as f:
 
 QA_PROMPT = PromptTemplate(
     input_variables=["context", "question"],
-    template=(
-        "Instruct: Using the context below, answer the question accurately and concisely."
-        "You are a QA Assistant for Preprints on arXiv in cs.CL (NLP, LLMs), with knowledge of June 2025. "
-        "If asked about your own purpose or capabilities, respond clearly with your own role as an assistant. "
-        "Otherwise, use the context below to answer the question clearly and concisely in one paragraph. "
-        "If the context doesn't contain the answer, say 'I don't know.'\n\n"
-        "Context:\n{context}\n\n"
-        "Question: {question}\n"
-        "Output:"
-    )
-    # template=(
-    #     "You are a QA Assistant for Preprints on arXiv in cs.CL (NLP, LLMs), with knowledge of June 2025.\n"
-    #     "If asked about your own purpose or capabilities, respond clearly with your own role as an assistant.\n"
-    #     "Otherwise, use the context below to answer the question clearly and concisely in one paragraph.\n"
-    #     "If the context doesn't contain the answer, say 'I don't know.'\n"
-    #     "You are warm and professional.\n"
-    #     "In your answer, please **restate relevant information from the context** to support your response.\n"
-    #     "Avoid repeating the same phrases or ideas.\n"
-    #     "Answer the question thoroughly and clearly, using as much detail as needed,\n"
-    #     "but without repeating phrases or introducing irrelevant personal background.\n"
-    #     "Avoid bullet points or self-descriptions.\n\n"
-    #     "Context:\n{context}\n\n"
-    #     "Question: {question}\n"
-    #     "Answer:"
-    # )
+    template=prompts["qa_prompt"]
 )
+# template=(
+#     "You are a QA Assistant for Preprints on arXiv in cs.CL (NLP, LLMs), with knowledge of June 2025.\n"
+#     "If asked about your own purpose or capabilities, respond clearly with your own role as an assistant.\n"
+#     "Otherwise, use the context below to answer the question clearly and concisely in one paragraph.\n"
+#     "If the context doesn't contain the answer, say 'I don't know.'\n"
+#     "You are warm and professional.\n"
+#     "In your answer, please **restate relevant information from the context** to support your response.\n"
+#     "Avoid repeating the same phrases or ideas.\n"
+#     "Answer the question thoroughly and clearly, using as much detail as needed,\n"
+#     "but without repeating phrases or introducing irrelevant personal background.\n"
+#     "Avoid bullet points or self-descriptions.\n\n"
+#     "Context:\n{context}\n\n"
+#     "Question: {question}\n"
+#     "Answer:"
+# )
 
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,

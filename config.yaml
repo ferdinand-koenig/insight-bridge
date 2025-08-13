@@ -1,23 +1,41 @@
-embedding_model_name: "sentence-transformers/msmarco-distilbert-base-v4"
-top_k: 3
+embedding_model_name: "sentence-transformers/msmarco-distilbert-base-v4"  # Sentence embedding model for FAISS search
+top_k: 3  # How many most relevant chunks to retrieve from FAISS
 
-raw_docs_path: "data/raw"  # "/vol/fob-vol5/mi22/koenigfd/data/raw/raw"  #
+# Path to folder with raw documents before embedding
+raw_docs_path: "data/raw"  # "/vol/fob-vol5/mi22/koenigfd/data/raw/raw"
 
 arxiv_download:
   categories:
-    - "cs.CL"
-  year: 2025
-  month: 6
+    - "cs.CL"  # ArXiv category for NLP & LLM papers
+  year: 2025  # Year filter for ArXiv download
+  month: 6    # Month filter for ArXiv download
 
+# FAISS paths. Used for creation and use (Read and Write)
 FAISS:
-  index_path: "data/faiss_index"  # "/vol/fob-vol5/mi22/koenigfd/data/faiss_index"
+  # FAISS binary index location
+  index_path: "data/faiss_index"  #  "/vol/fob-vol5/mi22/koenigfd/data/faiss_index"
+  # Pickled metadata (docstore + ID mapping)
   metadata_path: "data/faiss_metadata.pkl"  # "/vol/fob-vol5/mi22/koenigfd/data/faiss_metadata.pkl"
 
 RAG:
-  chunk_size: 700
-  chunk_overlap: 100
-  batch_size: 4096 * 2  # Adjust to memory limits
+  chunk_size: 1000       # Number of characters per text chunk
+  chunk_overlap: 150     # Overlap between chunks to preserve context
+  batch_size: 4096 * 2   # Adjust to memory limits; Batch size for embedding computation
 
 gradio_server:
-  host: "0.0.0.0"    # or "127.0.0.1" for local only
-  port: 7860
+  host: "0.0.0.0"  # Use 127.0.0.1 for local-only, 0.0.0.0 for public
+  port: 7860       # Gradio web app port
+
+llm:
+  model_name: "/model/qwen2-1.5b-instruct-q4_k_m.gguf"  # Path or HuggingFace model ID
+  # other popular choices: # "/model/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", # "Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+  max_length: 256 #384    # Max output tokens for conciseness and efficiency
+  temperature: 0.1        # Lower = more deterministic answers
+  do_sample: false        # false = deterministic decoding
+  no_repeat_ngram_size: 3 # Prevent repeated phrases
+  num_beams: 1            # Beam search width (1 = greedy search)
+  stop:
+    - "\n"                # Stop generation on newline
+  context_length: 4096    # Maximum context tokens the model can process
+  # add n_threads if you want to specify a number of CPU threads to be used. Dont specify to use all
+  n_threads: 6
