@@ -173,11 +173,11 @@ def answer_question(question: str) -> str:
     Returns:
         str: The generated answer from the local LLM.
     """
-    print("\n\n\nQuestion:", question)
-    docs = vectorstore.as_retriever(search_kwargs={"k": top_k}).get_relevant_documents(question)
-    print(f"\nRetrieved {len(docs)} documents:")
-    for i, doc in enumerate(docs):
-        print(f"--- Doc {i + 1} ---<doc>\n{doc.page_content}<\doc>\n")
+    # print("\n\n\nQuestion:", question)
+    # docs = vectorstore.as_retriever(search_kwargs={"k": top_k}).get_relevant_documents(question)
+    # print(f"\nRetrieved {len(docs)} documents:")
+    # for i, doc in enumerate(docs):
+    #     print(f"--- Doc {i + 1} ---<doc>\n{doc.page_content}<\doc>\n")
 
     start_time = time.time()
     result = qa_chain.invoke({'query': question})
