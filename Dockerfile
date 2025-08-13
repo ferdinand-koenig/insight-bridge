@@ -26,6 +26,7 @@ RUN pip3 install poetry==2.1.2
 ENV POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_IN_PROJECT=1 \
     POETRY_VIRTUALENVS_CREATE=1 \
+    POETRY_NO_BINARY="llama-cpp-python" \
     POETRY_CACHE_DIR=/tmp/poetry_cache \
     CMAKE_ARGS="-DLLAMA_CUBLAS=off -DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS -DLLAMA_NATIVE=ON -DLLAMA_BUILD_BACKEND=ON"
 
@@ -37,17 +38,9 @@ COPY pyproject.toml poetry.lock ./
 COPY README.md .
 
 # 5. Install all dependencies, forcing llama-cpp-python to build from source
-RUN poetry run pip install --no-binary llama-cpp-python llama-cpp-python && \
-    poetry install --only main --no-root && \
+# RUN poetry run pip install --no-binary llama-cpp-python llama-cpp-python && \
+RUN poetry install --no-root --with inference && \
     rm -rf $POETRY_CACHE_DIR
-
-# 6. Copy actual app code
-COPY app ./app
-COPY ingest ./ingest
-COPY data ./data
-
-# 7. Install your local package (now that source is present)
-RUN poetry install --without dev
 
 ########################################
 # Runtime stage: minimal runtime with llama.cpp + Python
@@ -80,7 +73,8 @@ COPY --from=builder /insight-bridge/.venv /insight-bridge/.venv
 # 11. Copy project files (again — but clean, no dev tooling)
 COPY app ./app
 COPY ingest ./ingest
-COPY data ./data
+COPY data/faiss_index ./data/
+COPY data/faiss_metadata.pkl ./data/
 COPY README.md .
 
 ## Copy backend .so files into /insight-bridge
