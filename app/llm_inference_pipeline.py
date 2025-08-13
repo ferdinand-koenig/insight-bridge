@@ -50,6 +50,9 @@ faiss_config = config.get("FAISS", {})
 FAISS_INDEX_PATH = faiss_config.get("index_path", "data/faiss_index")
 FAISS_METADATA_PATH = faiss_config.get("metadata_path", "data/faiss_metadata.pkl")
 
+# LLM Config
+llm_config = config.get("llm", {})
+
 # Load FAISS index and metadata
 index = faiss.read_index(FAISS_INDEX_PATH)
 # Load docstore + ID mapping
@@ -75,17 +78,20 @@ vectorstore = FAISS(
 #     model_kwargs={"temperature": 0, "max_length": 512}
 # )
 # ────────────────────────────── Initialize Local LLM ────────────────────────────── #
-llm = LocalTransformersLLM(  # Todo move to config
-    model_name="/model/phi-2.Q4_K_M.gguf",  # "/model/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", # "Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    max_length=256,  # Limit output to 512 tokens to keep responses concise and efficient
-    temperature=0.1,   # Set temperature to 0 for deterministic, focused output (no randomness)
-    do_sample=False, # Disable sampling to ensure repeatable and stable answers
-    no_repeat_ngram_size=3,  # prevent the model from repeating the same sequence of words (n-grams) during text gen.
-    num_beams=1,     # Use beam search with 2 beams to improve answer quality by exploring multiple candidate
-    # sequences Beam search slightly increases latency and memory but produces more accurate and coherent responses,
-    # which is important for a QA system querying arXiv preprints where factual accuracy is critical
-    stop=["\n"],
+llm = LocalTransformersLLM(
+    model_name=llm_config.get("model_name", "/model/phi-2.Q4_K_M.gguf"),
+    max_length=llm_config.get("max_length", 256),
+    temperature=llm_config.get("temperature", 0.1),
+    do_sample=llm_config.get("do_sample", False),
+    no_repeat_ngram_size=llm_config.get("no_repeat_ngram_size", 3),
+    num_beams=llm_config.get("num_beams", 1),
+    stop=llm_config.get("stop", ["\n"]),
+    context_length=llm_config.get("context_length", 4096),
+    n_threads=llm_config.get("n_threads", os.cpu_count()),
 )
+
+with open("prompt_template.yaml", "r") as f:
+    prompts = yaml.safe_load(f)
 
 QA_PROMPT = PromptTemplate(
     input_variables=["context", "question"],
