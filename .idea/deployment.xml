@@ -10,6 +10,8 @@
           </mappings>
           <excludedPaths>
             <excludedPath local="true" path="$PROJECT_DIR$/data" />
+            <excludedPath local="true" path="$PROJECT_DIR$/model" />
+            <excludedPath local="true" path="$PROJECT_DIR$/images" />
           </excludedPaths>
         </serverdata>
       </paths>
