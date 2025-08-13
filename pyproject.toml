@@ -1,42 +1,45 @@
-[project]
+[tool.poetry]
 name = "insight-bridge"
 version = "0.1.0"
 description = ""
-authors = [
-    {name = "Ferdinand Koenig",email = "ferdinand@koenix.de"}
-]
-license = {text = "CC BY-NC-SA 4.0"}
+authors = ["Ferdinand Koenig <ferdinand@koenix.de>"]
+license = "CC BY-NC-SA 4.0"
 readme = "README.md"
-requires-python = ">=3.10,<4.0"
-dependencies = [
-    "langchain (>=0.3.27,<0.4.0)",
-    "faiss-cpu (>=1.11.0.post1,<2.0.0)",
-    "sentence-transformers (>=5.0.0,<6.0.0)",
-    "gradio (>=5.38.2,<6.0.0)",
-    "pyyaml (>=6.0.2,<7.0.0)",
-    "huggingface-hub (>=0.34.0,<0.35.0)",
-    "feedparser (>=6.0.11,<7.0.0)",
-    "rich (>=14.1.0,<15.0.0)",
-    "langchain-community (>=0.3.27,<0.4.0)",
-    "pypdf (>=5.8.0,<6.0.0)",
-    "langchain-huggingface (>=0.3.1,<0.4.0)",
-    "torch (>=2.7.1,<3.0.0)",
-    "transformers (>=4.48.0)",
-    "hf-xet (>=1.1.5,<2.0.0)",
-    "accelerate (>=1.9.0,<2.0.0)",
-    "llama-cpp-python (>=0.3.4,<0.4.0)",
-]
 
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+langchain = ">=0.3.27,<0.4.0"
+faiss-cpu = ">=1.11.0.post1,<2.0.0"
+sentence-transformers = ">=5.0.0,<6.0.0"
+gradio = ">=5.38.2,<6.0.0"
+pyyaml = ">=6.0.2,<7.0.0"
+huggingface-hub = ">=0.34.0,<0.35.0"
+rich = ">=14.1.0,<15.0.0"
+langchain-community = ">=0.3.27,<0.4.0"
+langchain-huggingface = ">=0.3.1,<0.4.0"
 
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+[tool.poetry.group.ingest]
+optional = true
 
-[tool.poetry]
-package-mode = false
-packages = []
+[tool.poetry.group.ingest.dependencies]
+requests = "^2.31.0"
+feedparser = ">=6.0.11,<7.0.0"
+pypdf = ">=5.8.0,<6.0.0"
+simpleeval = "^1.0.3"
+
+[tool.poetry.group.inference]
+optional = true
+
+[tool.poetry.group.inference.dependencies]
+torch = ">=2.7.1,<3.0.0"
+transformers = ">=4.48.0"
+hf-xet = ">=1.1.5,<2.0.0"
+accelerate = ">=1.9.0,<2.0.0"
+llama-cpp-python = ">=0.3.4,<0.4.0"
+
+[tool.poetry.group.dev]
+optional = true
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^4.2.0"
 ruff = "^0.12.5"
-
