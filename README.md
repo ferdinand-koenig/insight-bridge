@@ -37,9 +37,15 @@ Python, Pre-commit, fluff, ...
 #### Steps
 ```bash
 docker run -it --rm \
-  -v /path/on/host/model.bin:/app/models/model.bin \
+  -v .\model\:/model/ \
+  -v .\config.yaml:/insight-bridge/config.yaml \
+  -v .\prompt_template.yaml:/insight-bridge/prompt_template.yaml \
+  [-v .\app:/insight-bridge/app \]
+  [-v .\dev_data\dummy_response.html:/insight-bridge/dev_data/dummy_response.html \]
   -p 7860:7860 \
-  your-image-name
+  --entrypoint python3 \
+  insight-bridge \
+  -m app.main
   ```
 
 * `-v /path/on/host/model.bin:/app/models/model.bin`  
@@ -54,10 +60,14 @@ docker run -it --rm \
 * `-it`  
   Runs the container with an interactive terminal
 
+Windows Terminals (PS, CMD) usually can't handle linebreaks in commands. Use one line:
+
 E.g.,
 ```bash
 docker run -it --rm -v .\model\tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf:/insight-bridge/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -v .\config.yaml:/insight-bridge/config.yaml -p 7860:7860 --entrypoint python3 insight-bridge -m app.main
 ```
+
+
 
 #### Development with Docker
 To build a new build, use
@@ -104,9 +114,6 @@ docker run -it --rm -v .\model\phi-2.Q4_K_M.gguf:/model/phi-2.Q4_K_M.gguf -v .\c
       | `dev`       | Developer tooling for linting, formatting, and pre-commit hooks              | `pre-commit`, `ruff`                                                                                                                             |
       | *(none)*    | Only the shared dependencies used in both ingest and inference               | `langchain`, `faiss-cpu`, `sentence-transformers`, `gradio`, `pyyaml`, `huggingface-hub`, `rich`, `langchain-community`, `langchain-huggingface` |
 
-   > **Important:** Due to a bug in Poetry, when installing with the `--with` flag to specify dependency groups, you
-   also need to explicitly exclude other groups using the `--without` flag. Otherwise, unwanted groups like inference
-      (which includes packages heavily dependent on environment and likely to fail like) may still be installed.
 
 3. [Development only] Install pre-commit 
     ```bash
