@@ -5,6 +5,7 @@ qa_prompt: |
   - Do not quote or repeat context verbatim.
   - Keep your answer in **1 paragraph, 2-3 sentences max**.
   - If the answer cannot be determined from the context, respond exactly: "I don't know." Do **not** repeat reasoning or explanations.
+  Answer concisely the question and stay on topic. Do not add the context if not required.
 
   Context:
   {context}
