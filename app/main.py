@@ -1,10 +1,11 @@
 import gradio as gr
 import yaml
 
-USE_MOCK = True
 # Make sure to include the html file in Docker when setting true. Consult README
+with open("config.yaml", "r") as f:
+    gradio_sever_config = yaml.safe_load(f).get("gradio_server", {})
 
-if USE_MOCK:
+if gradio_sever_config.get("use_mock_answer", False):
     import time
 
     with open("./dev_data/dummy_response.html", "r") as f:
@@ -17,11 +18,10 @@ if USE_MOCK:
 else:
     from app.llm_inference_pipeline import answer_question
 
-with open("config.yaml", "r") as f:
-    config = yaml.safe_load(f)
 
-server_host = config.get("gradio_server", {}).get("host", "0.0.0.0")
-server_port = config.get("gradio_server", {}).get("port", 7860)
+
+server_host = gradio_sever_config.get("host", "0.0.0.0")
+server_port = gradio_sever_config.get("port", 7860)
 
 
 def answer_question_with_status(question):

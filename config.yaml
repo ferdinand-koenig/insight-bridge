@@ -25,10 +25,17 @@ RAG:
 gradio_server:
   host: "0.0.0.0"  # Use 127.0.0.1 for local-only, 0.0.0.0 for public
   port: 7860       # Gradio web app port
+  use_mock_answer: false
 
 llm:
-  model_name: "/model/qwen2-1.5b-instruct-q4_k_m.gguf"  # Path or HuggingFace model ID
-  # other popular choices: # "/model/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", # "Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+  model_name: "/model/mistral-7b-instruct-v0.2.Q4_K_M.gguf"  # Path or HuggingFace model ID
+  # other popular choices:
+    #  mistral-7b-instruct-v0.2.Q4_K_M.gguf
+    #  phi-2.Q4_K_M.gguf
+    #  phi-3.unsloth.Q4_K_M.gguf
+    #  qwen2-1.5b-instruct-q4_k_m.gguf
+    #  tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+  # "Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
   max_length: 256 #384    # Max output tokens for conciseness and efficiency
   temperature: 0.1        # Lower = more deterministic answers
   do_sample: false        # false = deterministic decoding

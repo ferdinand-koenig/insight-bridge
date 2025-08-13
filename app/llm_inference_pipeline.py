@@ -192,7 +192,8 @@ def answer_question(question: str) -> str:
                    f"<h3>Sources (First 300 characters per document):</h3>"
                    f"<br>{sources_html}"
                    f"<br><hr style=\"border-top: 3px double #333;\">"
-                   f"Time taken: {elapsed//60:.0f} minute(s) and {elapsed % 60:.1f} second(s)")
+                   f"Time taken: {elapsed//60:.0f} minute(s) and {elapsed % 60:.1f} second(s)"
+                   f"<i>Question: {question}</i>")
     return html_string
 
 
