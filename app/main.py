@@ -1,5 +1,6 @@
 import gradio as gr
 import yaml
+from .cache_utils import cache_with_hit_delay
 
 # Make sure to include the html file in Docker when setting true. Consult README
 with open("config.yaml", "r") as f:
@@ -45,8 +46,29 @@ def answer_question_with_status(question):
     </style>
     """
     yield spinner_html
-    result = answer_question(question)
+
+    result = answer_question_cached(question)
+
+    if answer_question_cached.last_hit:
+        result += "<br><i>This response was retrieved from the custom cache with 20s delay.</i>"
+        print(f"\n\n------------------------------------------\n"
+              f"[INFO] Using cached answer for \"{question}\".")
+    else:
+        result += "<br><i>This request spawned a new compute instance (Separate container).</i>"
     yield result
+
+
+@cache_with_hit_delay(maxsize=64, hit_delay=20)
+def answer_question_cached(question: str) -> str:
+    """
+    Check cache first. If miss, either:
+        - MODE=="local": spin up local container
+        - MODE=="hetzner": spin up Hetzner VPS
+    """
+    print(f"[INFO] Cache miss for question: {question}")
+
+    return answer_question(question)
+
 
 with gr.Blocks(title="InsightBridge: Semantic Q&A with LangChain & HuggingFace") as demo:
     # Title and description
@@ -60,7 +82,9 @@ with gr.Blocks(title="InsightBridge: Semantic Q&A with LangChain & HuggingFace")
         with gr.Column(scale=1):
             question_input = gr.Textbox(
                 lines=3,
-                placeholder="Ask a question about LLM preprints of June"
+                placeholder="Ask a question about LLM preprints of June. " + \
+                            "Question will be logged for demo and improvement purposes.\n" + \
+                            "⚠️ Please do not include any personal information (names, emails, etc.)."
             )
             submit_btn = gr.Button("Submit")
 
@@ -85,8 +109,9 @@ with gr.Blocks(title="InsightBridge: Semantic Q&A with LangChain & HuggingFace")
                         <b>LinkedIn:</b> <a href="https://www.linkedin.com/in/ferdinand-koenig" target="_blank">ferdinand-koenig</a>
                     </li>
                     <li><b>Email:</b> {obfuscated_email}</li>
-                    <li><b>Tech Stack:</b> LangChain, HuggingFace, FAISS, Llama.cpp, Docker, Gradio, Python</li>
+                    <li><b>Tech Stack:</b> LangChain, HuggingFace, FAISS, Llama.cpp, Custom Caching, Docker, Gradio, Python</li>
                     <li><b>Resource Efficient:</b> Runs without GPU → small model → longer responses</li>
+                    <li><b>High Privacy:</b> Inference is local and not send to a third party.</b>
                     <li><b>Limitations:</b> lower quality answers, fewer documents can be processed</li>
                     <li><b>Diagram:</b> <i>(Architecture diagram goes here)</i></li>
                 </ul>
