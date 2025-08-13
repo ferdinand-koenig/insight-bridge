@@ -86,20 +86,37 @@ docker run -it --rm -v .\model\phi-2.Q4_K_M.gguf:/model/phi-2.Q4_K_M.gguf -v .\c
     ```
 	
 2. Install dependencies
-    ```bash
-    poetry install --only main
-    ```
-   Run `poetry install` instead if you plan to develop as this will also 
-   install dev dependencies like linter and pre-commit
+   1. Example for ingest (Including documents for RAG)
+      ```bash
+      poetry install --no-root --with ingest --without inference,dev
+      ```
+      > **For inference**, the Docker container is advised.
+   2. General explanation
+      ```bash
+      poetry install --no-root --with <keywords>
+      ```
+      There are three keywords possible:
+    
+      | Keyword     | Description                                                                  | Includes                                                                                                                                         |
+      | ----------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+      | `ingest`    | Ingestion-only dependencies for downloading, parsing, and indexing documents | `requests`, `feedparser`, `pypdf`                                                                                                                |
+      | `inference` | Heavy ML dependencies for running models and embeddings                      | `torch`, `transformers`, `hf-xet`, `accelerate`, `llama-cpp-python`                                                                              |
+      | `dev`       | Developer tooling for linting, formatting, and pre-commit hooks              | `pre-commit`, `ruff`                                                                                                                             |
+      | *(none)*    | Only the shared dependencies used in both ingest and inference               | `langchain`, `faiss-cpu`, `sentence-transformers`, `gradio`, `pyyaml`, `huggingface-hub`, `rich`, `langchain-community`, `langchain-huggingface` |
+
+   > **Important:** Due to a bug in Poetry, when installing with the `--with` flag to specify dependency groups, you
+   also need to explicitly exclude other groups using the `--without` flag. Otherwise, unwanted groups like inference
+      (which includes packages heavily dependent on environment and likely to fail like) may still be installed.
 
 3. [Development only] Install pre-commit 
     ```bash
    poetry run pre-commit install
     ```
+   Enforces code standard. Requires to install `dev` group in prev. step.
 	
-4. Prepare your document folder
+4. [Ingest only] Prepare your document folder
 
-Place PDF documents inside the `data/raw/` directory.
+    Place PDF documents inside the `data/raw/` directory.
 
 
 #### Usage
@@ -120,6 +137,10 @@ This will:
 - Store embeddings in a FAISS index (data/faiss_index)
 
 - Save chunk metadata for source tracking (data/faiss_metadata.pkl)
+
+Look and feel:
+![images/ingest-console.png](images/ingest-console.png)
+
 
 ## Project Structure
 
@@ -148,5 +169,4 @@ This will:
 
 ## Contact
 Ferdinand Koenig
-
 ferdinand -at- koenix.de
