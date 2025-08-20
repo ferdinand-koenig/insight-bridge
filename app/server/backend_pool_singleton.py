@@ -13,6 +13,9 @@ Supports:
 import os
 import asyncio
 from typing import Any, Dict, List, Optional, TypeVar, AsyncGenerator
+
+import math
+
 from app.llm_worker_provisioners import BaseProvisioner, Provisioner
 from app import logger
 from contextlib import asynccontextmanager
@@ -172,13 +175,18 @@ class BackendPool:
             return True  # Always spawn at least one backend
 
         queued_count = self.queue.qsize()
+        busy_backends = len([bw for bw in self.backends if bw.busy])
+        if (len(self.backends) - busy_backends) > 0:
+            return False  # There is at least one idling backend. Give it the task!
+        # Starting from here: There are backends, and all are busy.
+
         avg_startup, avg_inference = await self.get_average_times()
 
         # Total wait time if we do NOT spawn: first in queue waits for N backends * avg_inference
-        estimated_wait_no_spawn = avg_inference * (queued_count + len([bw for bw in self.backends if bw.busy]))
+        estimated_wait_no_spawn = avg_inference * (math.ceil(queued_count / busy_backends) + 1)
 
         # Total wait time if we spawn one new backend
-        estimated_wait_spawn = max(avg_startup, avg_inference)  # first inference will run after startup
+        estimated_wait_spawn = avg_startup + avg_inference  # first inference will run after startup
 
         # Economic decision: spawn if waiting is longer than startup cost
         return estimated_wait_no_spawn > estimated_wait_spawn
