@@ -383,7 +383,10 @@ Let:
 
 Since each backend can process requests in parallel, the first queued request will roughly wait for:
 
-$W_{\text{no_spawn}} = t_i \cdot (\lceil Q / B \rceil + 1)$
+$$
+W_{\text{no\_spawn}} = t_i \cdot \Big(\lceil Q / B \rceil + 1\Big)
+$$
+
 
 - $\lceil Q / B \rceil$ estimates how many "rounds" of inference are required for queued requests to reach an available backend.  
 - $+1$ accounts for the inference time of the first queued request itself.  
@@ -392,17 +395,21 @@ $W_{\text{no_spawn}} = t_i \cdot (\lceil Q / B \rceil + 1)$
 
 The total time includes both startup and inference:
 
-$W_{\text{spawn}} = t_s + t_i$
+$$
+W_{\text{spawn}} = t_s + t_i
+$$
 
 - The first request can only start processing after the backend has fully started.
 
 #### 3. Spawn decision
 
-$\text{spawn_new_backend} =
+$$
+\text{spawn_new_backend} =
 \begin{cases} 
-\text{True} & \text{if } W_{\text{no_spawn}} > W_{\text{spawn}} \\
+\text{True} & \text{if } W_{\text{no\_spawn}} > W_{\text{spawn}} \\
 \text{False} & \text{otherwise} 
-\end{cases}$
+\end{cases}
+$$
 
 This captures the **economic trade-off**: spawn a new backend only if doing so will reduce the expected wait for queued requests.
 
