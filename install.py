@@ -1,6 +1,7 @@
 # install.py
 import subprocess
 import argparse
+import sys
 
 # Define all available groups and their descriptions for users
 GROUPS_INFO = {
@@ -73,8 +74,8 @@ def main():
     # Run poetry install
     poetry_cmd = ["poetry", "install", "--no-root", "--with", ",".join(all_groups)]
 
-    print(f"Running: {' '.join(poetry_cmd)}")
-    subprocess.run(poetry_cmd, shell=True)
+    print(f"Running: {' '.join(poetry_cmd)} \n")
+    subprocess.run(poetry_cmd, shell=(sys.platform == "win32"))
 
     # After running poetry install
     if "dev" in all_groups:
