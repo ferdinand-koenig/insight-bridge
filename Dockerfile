@@ -1,5 +1,5 @@
 ########################################
-# Builder stage: installs Python deps in virtualenv
+# Builder Worker stage: installs Python deps in virtualenv
 ########################################
 FROM ghcr.io/ggml-org/llama.cpp:light AS builder
 
@@ -36,14 +36,22 @@ WORKDIR /insight-bridge
 # 4. Copy dependency files and dummy README for Poetry sanity
 COPY pyproject.toml poetry.lock ./
 COPY README.md .
+COPY install.py .
 
 # 5. Install all dependencies, forcing llama-cpp-python to build from source
 # RUN poetry run pip install --no-binary llama-cpp-python llama-cpp-python && \
-RUN poetry install --no-root --with inference && \
+RUN python3 install.py inference && \
     rm -rf $POETRY_CACHE_DIR
 
+COPY config.yaml ./
+RUN . .venv/bin/activate && python -c "import yaml; \
+    from langchain_huggingface import HuggingFaceEmbeddings; \
+    model=yaml.safe_load(open('config.yaml')).get('embedding_model_name', 'sentence-transformers/sci-base'); \
+    HuggingFaceEmbeddings(model_name=model)"
+
+
 ########################################
-# Runtime stage: minimal runtime with llama.cpp + Python
+# Runtime Worker stage: minimal runtime with llama.cpp + Python
 ########################################
 FROM ghcr.io/ggml-org/llama.cpp:light AS runtime
 
@@ -69,10 +77,14 @@ WORKDIR /insight-bridge
 
 # 10. Copy virtualenv from builder
 COPY --from=builder /insight-bridge/.venv /insight-bridge/.venv
+# Copy pre-downloaded Hugging Face cache
+COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
 
 # 11. Copy project files (again — but clean, no dev tooling)
-COPY app ./app
-COPY ingest ./ingest
+COPY app/__init__.py app/logger.py ./app/
+COPY app/inference ./app/inference
+COPY app/llm_worker_provisioners ./app/llm_worker_provisioners
+#COPY ingest ./ingest
 COPY data/faiss_index ./data/
 COPY data/faiss_metadata.pkl ./data/
 COPY README.md .
@@ -89,10 +101,45 @@ RUN ln -s /app/libllama.so /insight-bridge/libllama.so && \
 
 
 
-# 12. Expose Gradio
-EXPOSE 7860
+# 12. Expose FastAPI
+EXPOSE 8000
 
 # Remove the current entrypoint which was set to /app/llama-cli by base image
 ENTRYPOINT []
-# 13. Default command to run your Gradio app
-CMD ["python3", "-m", "app.main"]
+# 13. Default command to run worker app
+CMD ["python3", "-m", "app.inference.worker_server"]
+
+
+########################################
+# Runtime Worker stage: minimal runtime with llama.cpp + Python
+########################################
+FROM python:3.10-slim AS server
+
+ENV POETRY_CACHE_DIR=/tmp/poetry_cache
+
+WORKDIR /insight-bridge
+
+# Minimal dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get clean && pip3 install --upgrade pip && rm -rf /var/lib/apt/lists/*
+
+
+COPY README.md ./
+COPY pyproject.toml poetry.lock ./
+COPY install.py .
+
+# 5. Install all dependencies, forcing llama-cpp-python to build from source
+RUN pip3 install poetry==2.1.2
+RUN python3 install.py server && \
+    rm -rf $POETRY_CACHE_DIR
+
+# Copy only what's necessary for Gradio server
+COPY app/__init__.py app/logger.py ./app/
+COPY app/server ./app/server
+COPY app/llm_worker_provisioners/__init__.py app/llm_worker_provisioners/base_provisioner.py ./app/llm_worker_provisioners/
+COPY config.yaml ./
+
+EXPOSE 443
+
+ENTRYPOINT []
+CMD ["python3", "-m", "app.server.main"]

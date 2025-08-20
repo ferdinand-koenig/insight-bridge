@@ -1,5 +1,6 @@
 /model
 *.docx
+/logs
 
 # For a lot of data and copyright concerns:
 /data

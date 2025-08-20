@@ -35,6 +35,10 @@ from transformers import (
 from typing import Optional, List, Mapping, Any
 import torch
 from pydantic import Field, PrivateAttr
+from app import logger
+
+os.environ["GGUF_USE_MMAP"] = "0"
+logger.debug(f"Set GGUF_USE_MMAP to: {os.environ['GGUF_USE_MMAP']}")
 
 def _load_llama_backend():
     import ctypes
@@ -45,9 +49,9 @@ def _load_llama_backend():
     # Try to call ggml_backend_load_all (if present)
     try:
         ret = llama_lib.ggml_backend_load_all()
-        print(f"Successfully called ggml_backend_load_all(), returned: {ret}")
+        logger.info(f"Successfully called ggml_backend_load_all(), returned: {ret}")
     except AttributeError as e:
-        print("ggml_backend_load_all not found:", e)
+        logger.error("ggml_backend_load_all not found:", e)
 
 _load_llama_backend()
 # ruff: noqa
@@ -112,7 +116,7 @@ class LocalTransformersLLM(LLM):
         if use_llamacpp is None:
             use_llamacpp = model_name.strip().endswith(".gguf")
         self.use_llamacpp = use_llamacpp
-        print(f"[debug] use_llamacpp: {use_llamacpp}")
+        logger.debug(f"use_llamacpp: {use_llamacpp}")
         self.model_name = model_name
 
         if self.use_llamacpp:
@@ -122,7 +126,7 @@ class LocalTransformersLLM(LLM):
             self._llama_cpp_model = Llama(self.model_name,
                                           n_ctx=self.context_length,
                                           n_threads=self.n_threads)
-            print(f"Set threads to {self.n_threads}")
+            logger.info(f"Set threads to {self.n_threads}")
             return
 
         # Load tokenizer
@@ -146,9 +150,7 @@ class LocalTransformersLLM(LLM):
         self._model.to(self._device)
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-        print("\n\n------------------------------------------\n"
-              "[DEBUG] Prompt passed to tokenizer and model:\n")
-        print(prompt)
+        logger.debug(f"Prompt passed to tokenizer and model: \"{prompt}\"")
         if self.use_llamacpp:
             return self._call_llamacpp(prompt)
         return self._call_transformers(prompt)
@@ -172,7 +174,7 @@ class LocalTransformersLLM(LLM):
             stop = None,
             echo = False,
         )
-        print(response)
+        logger.debug(f"response: {response}")
 
         return response["choices"][0]["text"].strip()
 

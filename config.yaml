@@ -23,9 +23,30 @@ RAG:
   batch_size: 4096 * 2   # Adjust to memory limits; Batch size for embedding computation
 
 gradio_server:
-  host: "0.0.0.0"  # Use 127.0.0.1 for local-only, 0.0.0.0 for public
-  port: 7860       # Gradio web app port
+  host: "127.0.0.1"  # Use 127.0.0.1 for local-only, 0.0.0.0 for public
+  port: 443      # Gradio web app port
   use_mock_answer: false
+  ssl_cert_path: /path/to/cert.pem
+  ssl_key_path: /path/to/key.pem
+  hit_delay: 10
+
+worker_server:
+  host: "0.0.0.0"  # Use 127.0.0.1 for private localhost, else 0.0.0.0 (always when in docker)
+  port: 8000
+
+backend_pool:
+  mode: "local"  # "local" or "hetzner"
+  max_backends: 5
+  idle_buffer: 360  # seconds
+  health_timeout: 600
+  inference_timeout: 600  #300
+
+hetzner:
+  snapshot_name: "my-llm-snapshot"
+  ssh_key_name: "my-key"
+  ssh_key_path: "~/.ssh/id_rsa"
+  server_type: ["CX52", "CX42", "CPX41", "CX32", "CPX31"]
+  private_network_name: "network-1"
 
 llm:
   model_name: "/model/mistral-7b-instruct-v0.2.Q4_K_M.gguf"  # Path or HuggingFace model ID
@@ -45,4 +66,7 @@ llm:
     - "\n"                # Stop generation on newline
   context_length: 4096    # Maximum context tokens the model can process
   # add n_threads if you want to specify a number of CPU threads to be used. Dont specify to use all
-  n_threads: 6
+#  n_threads: 6
+
+logging:
+  level: INFO
