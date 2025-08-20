@@ -30,8 +30,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 
-from app.local_llm_wrapper import LocalTransformersLLM
-
+from .local_llm_wrapper import LocalTransformersLLM
+from app import logger
 
 
 
@@ -183,8 +183,8 @@ def answer_question(question: str) -> str:
     result = qa_chain.invoke({'query': question})
     end_time = time.time()
     elapsed = end_time - start_time
-    print("\nQuestion:", question)
-    print(f"Time taken for inference: {elapsed:.1f} seconds")
+    logger.info("\nQuestion:", question)
+    logger.info(f"Time taken for inference: {elapsed:.1f} seconds")
     # Build HTML for sources with clickable links
     sources_html = format_sources_with_excerpt_and_arxiv_link(result["source_documents"])
     html_string = (f"{clean_answer(result['result'])}<br>"
@@ -194,6 +194,7 @@ def answer_question(question: str) -> str:
                    f"<br><hr style=\"border-top: 3px double #333;\">"
                    f"Time taken: {elapsed//60:.0f} minute(s) and {elapsed % 60:.1f} second(s)<br>"
                    f"<i>Question: {question}</i>")
+    logger.debug(f"HTML response: {html_string}")
     return html_string
 
 
