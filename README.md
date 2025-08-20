@@ -383,9 +383,7 @@ Let:
 
 Since each backend can process requests in parallel, the first queued request will roughly wait for:
 
-$$
-W_{\text{no\_spawn}} = t_i \cdot \Big(\lceil Q / B \rceil + 1\Big)
-$$
+$W_{\text{no\_spawn}} = t_i \cdot \Big(\lceil Q / B \rceil + 1\Big)$
 
 
 - $\lceil Q / B \rceil$ estimates how many "rounds" of inference are required for queued requests to reach an available backend.  
@@ -395,9 +393,7 @@ $$
 
 The total time includes both startup and inference:
 
-$$
-W_{\text{spawn}} = t_s + t_i
-$$
+$W_{\text{spawn}} = t_s + t_i$
 
 - The first request can only start processing after the backend has fully started.
 
