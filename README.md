@@ -399,11 +399,11 @@ $W_{\text{spawn}} = t_s + t_i$
 
 #### 3. Spawn decision
 
-$\text{spawn new backend}=
+$$\text{spawn new backend}=
 \begin{cases} 
 \text{True} & \text{if } W_{no\\\_spawn} > W_{\text{spawn}} \\
 \text{False} & \text{otherwise} 
-\end{cases}$
+\end{cases}$$
 
 This captures the **economic trade-off**: spawn a new backend only if doing so will reduce the expected wait for queued requests.
 
