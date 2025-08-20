@@ -69,7 +69,6 @@ This project is a **personal demo for portfolio purposes**. All input data is an
 
 I am currently seeking opportunities as an **ML Engineer / AI Researcher**. If you are interested in collaboration or hiring, please contact me via GitHub or LinkedIn.
 
----
 
 ## Project Overview
 
@@ -176,7 +175,7 @@ To add relevant documents, they are downloaded, chunked into
 small pieces and transformed into vector-representation into a space.
 These representations are saved into a database with metadata. Those
 deliverables are provided to each worker.
----
+
 
 ## Setup
 
