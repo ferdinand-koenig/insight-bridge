@@ -383,7 +383,7 @@ Let:
 
 Since each backend can process requests in parallel, the first queued request will roughly wait for:
 
-$W_{\text{no\_spawn}} = t_i \cdot \Big(\lceil Q / B \rceil + 1\Big)$
+$W_{no\_spawn} = t_i \cdot \Big(\lceil Q / B \rceil + 1\Big)$
 
 
 - $\lceil Q / B \rceil$ estimates how many "rounds" of inference are required for queued requests to reach an available backend.  
@@ -399,9 +399,9 @@ $W_{\text{spawn}} = t_s + t_i$
 
 #### 3. Spawn decision
 
-$\text{spawn_new_backend} =
+spawn new backend $=
 \begin{cases} 
-\text{True} & \text{if } W_{\text{no\_spawn}} > W_{\text{spawn}} \\
+\text{True} & \text{if } W_{no\_spawn} > W_{\text{spawn}} \\
 \text{False} & \text{otherwise} 
 \end{cases}$
 
