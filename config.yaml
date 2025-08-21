@@ -23,11 +23,11 @@ RAG:
   batch_size: 4096 * 2   # Adjust to memory limits; Batch size for embedding computation
 
 gradio_server:
-  host: "127.0.0.1"  # Use 127.0.0.1 for local-only, 0.0.0.0 for public
-  port: 443      # Gradio web app port
+  host: "0.0.0.0"  # Use 127.0.0.1 for local-only, 0.0.0.0 for public
+  port: 8080      # Gradio web app port
   use_mock_answer: false
-  ssl_cert_path: /path/to/cert.pem
-  ssl_key_path: /path/to/key.pem
+  ssl_cert_path: /insight-bridge/certs/fullchain.pem
+  ssl_key_path: /insight-bridge/certs/privkey.pem
   hit_delay: 10
 
 worker_server:
@@ -42,9 +42,9 @@ backend_pool:
   inference_timeout: 600  #300
 
 hetzner:
-  snapshot_name: "my-llm-snapshot"
-  ssh_key_name: "my-key"
-  ssh_key_path: "~/.ssh/id_rsa"
+  snapshot_name: "docker-ce"
+  ssh_key_name: "llm-hetzner-main-server"
+  ssh_key_path: "~/.ssh/llm-hetzner-main-server"
   server_type: ["CX52", "CX42", "CPX41", "CX32", "CPX31"]
   private_network_name: "network-1"
 
@@ -69,4 +69,4 @@ llm:
 #  n_threads: 6
 
 logging:
-  level: INFO
+  level: DEBUG
