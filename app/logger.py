@@ -44,5 +44,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
 
 # Example usage (can remove in production)
+logger.info("Starting app")
 logger.info("Project-wide logger initialized")
 logger.info(f"Logging level set to {logging.getLevelName(level)}")
