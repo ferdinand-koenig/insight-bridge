@@ -121,9 +121,15 @@ async def answer_question_with_status(question):
         result += "<br><i>This request spawned a new compute instance (Separate container).</i>"
     yield result
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+# goes from app/server/main.py → /insight-bridge
+favicon_file = os.path.join(BASE_DIR, "assets", "favicon.ico")
 
 # UI definition:
-with gr.Blocks(title="InsightBridge: Semantic Q&A with LangChain & HuggingFace") as app:
+with gr.Blocks(
+    title="InsightBridge: Semantic Q&A with LangChain & HuggingFace",
+    favicon_path=favicon_file
+) as app:
     # Title and description
     gr.HTML("<h1 style='text-align: center;'>InsightBridge: Semantic Q&A with LangChain & HuggingFace</h1>")
     gr.Markdown(
