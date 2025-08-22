@@ -55,6 +55,16 @@ class BaseProvisioner(ABC):
         """
         pass
 
+    @abstractmethod
+    async def healthcheck(self, id: Any) -> None:
+        """
+        Checks the health of the instance, i.e., whether the inference server is up and running.
+        Raises an TimeoutError if the inference server is not running.
+        :param id: Usually a port (docker) or IP address (hetzner).
+        :return: None
+        """
+        pass
+
 
 # --- Protocol Definition ---
 
@@ -88,5 +98,14 @@ class Provisioner(Protocol):
         Terminate a backend instance.
         Args:
             backend: Backend instance to terminate.
+        """
+        ...
+
+    async def healthcheck(self, id: Any) -> None:
+        """
+        Checks the health of the instance, i.e., whether the inference server is up and running.
+        Raises an TimeoutError if the inference server is not running.
+        :param id: Usually a port (docker) or IP address (hetzner).
+        :return: None
         """
         ...
