@@ -21,20 +21,26 @@ from app import logger
 from contextlib import asynccontextmanager
 
 # Type of object returned by a provisioner
-BackendType = TypeVar("BackendType")
+Backend = TypeVar("Backend")
 
 
 class BackendInstance:
     """
+    Active Backend Handle. For an easier interface and interaction. This is how instances are provided to user.
     Unified wrapper around a backend instance and its provisioner.
 
     Provides a simple `.run_on_backend(prompt)` interface for any type of backend.
     """
 
-    def __init__(self, provisioner: Provisioner, backend: BackendType, inference_timeout: int):
+    def __init__(self, provisioner: Provisioner, backend: Backend, inference_timeout: int, size:str="large"):
         self.provisioner = provisioner
         self.backend = backend
         self._inference_timeout = inference_timeout
+        self.size = size
+
+    @property
+    def is_small(self) -> bool:
+        return self.size == "small"
 
     async def run_on_backend(self, prompt: str) -> str:
         """Run a prompt on this backend instance."""
@@ -48,21 +54,28 @@ class BackendInstance:
             logger.error(f"Failed to terminate backend: {e}")
 
 
-class BackendWrapper:
+class BackendInstanceWrapper:
     """
-    Wraps a backend instance returned by a provisioner.
+    Pool-related metadata
+    Wraps a backend instance returned by a provisioner for bookkeeping.
 
     Tracks whether the backend is busy and last used timestamp.
     """
 
-    def __init__(self, instance: BackendType):
+    def __init__(self, instance: Backend, size="large"):
         now = asyncio.get_running_loop().time()
-        self.instance: BackendType = instance
+        self.instance: Backend = instance
         self.busy: bool = False
         # self.is_cold: bool = True  # TODO this would be required for even better time and resource management
         self.last_used: float = now
         self.start_time: float = now
+        if size not in ["large", "small"]:
+            raise ValueError(f"Invalid backend size: {size}")
+        self.size: str = size
 
+    @property
+    def is_small(self) -> bool:
+        return self.size == "small"
 
 class BackendPool:
     """
@@ -90,7 +103,7 @@ class BackendPool:
         self.max_size: int = max_size
         self.idle_buffer: int = idle_buffer
         self.inference_timeout: int = inference_timeout
-        self.backends: List[BackendWrapper] = []
+        self.backends: List[BackendInstanceWrapper] = []
         self.lock: asyncio.Lock = asyncio.Lock()
         self.queue: asyncio.Queue[asyncio.Future] = asyncio.Queue()
         self._idle_task: Optional[asyncio.Task] = None
@@ -125,6 +138,16 @@ class BackendPool:
             # No running loop, safe to create a new one
             asyncio.run(self.shutdown_all_backends())
 
+    def get_capacity(self) -> Dict[str, int]:
+        capacity = {
+            "max_size": self.max_size,
+            "current_size": len(self.backends),
+            "queued_requests": self.queue.qsize(),
+        }
+        capacity["current_capacity"] = capacity["max_size"] - capacity["current_size"]
+        return capacity
+
+
     def has_ready_instance(self) -> bool:
         """
         Return True if there is at least one idle backend ready to be used.
@@ -135,11 +158,24 @@ class BackendPool:
                 return True
         return False
 
-    async def init(self) -> None:
+    async def init(self, warm_backend:Backend = None) -> None:
         """Initialize the pool, starting the idle cleanup loop."""
         async with self.lock:
             if not self._idle_task:
                 self._idle_task = asyncio.create_task(self._idle_cleanup_loop())
+            if warm_backend:
+                if self.backends:
+                    raise AssertionError("Tried to initialize but seems already initialized. "
+                                         "There are already backends.")
+                await self.provisioner.healthcheck(
+                    warm_backend.instance.get("ip",
+                                              warm_backend.instance.get("port",
+                                                                        None
+                                                                        )
+                                              )
+                )
+                self.backends.append(BackendInstanceWrapper(warm_backend, size="small"))
+
 
     async def get_average_times(self) -> tuple[float, float]:
         """
@@ -157,9 +193,10 @@ class BackendPool:
             The caller should hold the lock if consistent reading with other state is required.
         """
         startup_times, inference_times = self._recent_request_times
-        avg_startup = sum(startup_times) / len(startup_times) if startup_times else 7 * 60
+        avg_startup = sum(startup_times) / len(startup_times) if startup_times else 10 * 60
         avg_inference = sum(inference_times) / len(inference_times) if inference_times else 3 * 60
         return avg_startup, avg_inference
+
 
     async def should_spawn_new_backend(self) -> bool:
         """
@@ -191,6 +228,7 @@ class BackendPool:
         # Economic decision: spawn if waiting is longer than startup cost
         return estimated_wait_no_spawn > estimated_wait_spawn
 
+
     async def estimate_wait_time(self) -> float:
         """
         Estimate wait time in seconds until a backend is available.
@@ -218,9 +256,29 @@ class BackendPool:
                 else:
                     return (queued_count + 1) / total_instances * avg_inference
 
-    async def record_request_time(self, startup_sec: float = 0, inference_sec: float = 0) -> None:
-        """Record finished request times."""
-        async with self.lock:
+    async def record_request_time(self, startup_sec: float = 0, inference_sec: float = 0, use_lock:bool = True) -> None:
+        """
+        Record the duration of a backend request for tracking average times.
+
+        Maintains two rolling lists (startup times and inference times) with a maximum
+        of 100 entries each, used to estimate backend performance and economic decisions.
+
+        Args:
+            startup_sec (float, optional): Time in seconds taken to start a backend instance.
+                Only recorded if greater than 0. Defaults to 0.
+            inference_sec (float, optional): Time in seconds taken to process a single inference request.
+                Only recorded if greater than 0. Defaults to 0.
+            use_lock (bool, optional): If True (default), acquires the internal async lock to
+                ensure thread-safe updates. If False, caller must guarantee thread safety.
+
+        Notes:
+            - The internal lock should be used unless the caller already holds it.
+            - Both startup_sec and inference_sec are optional, but at least one should be > 0
+              to affect recorded averages.
+            - This method updates internal lists and trims them to the 100 most recent entries
+              to avoid unbounded memory growth and keep a moving average.
+        """
+        def _action(startup_sec: float, inference_sec: float) -> None:
             startup_times, inference_times = self._recent_request_times
 
             if startup_sec > 0:
@@ -236,7 +294,13 @@ class BackendPool:
 
             self._recent_request_times = (startup_times, inference_times)
 
-    async def get_backend(self) -> BackendWrapper:
+        if use_lock:
+            async with self.lock:
+                _action(startup_sec, inference_sec)
+        else:
+            _action(startup_sec, inference_sec)
+
+    async def get_backend(self) -> BackendInstanceWrapper:
         """
         Acquire an available backend or wait in the queue if all are busy.
         """
@@ -244,12 +308,20 @@ class BackendPool:
             if not self._idle_task:
                 await self.init()
 
-            # Return first idle backend
-            for bw in self.backends:
-                if not bw.busy:
-                    bw.busy = True
-                    bw.last_used = asyncio.get_running_loop().time()
-                    return bw
+            # Prefer large over small if both available
+            idle_large = next((bw for bw in self.backends if not bw.busy and not bw.is_small),
+                              None)
+            if idle_large:
+                idle_large.busy = True
+                idle_large.last_used = asyncio.get_running_loop().time()
+                return idle_large
+
+            idle_small = next((bw for bw in self.backends if not bw.busy and bw.is_small),
+                              None)
+            if idle_small:
+                idle_small.busy = True
+                idle_small.last_used = asyncio.get_running_loop().time()
+                return idle_small
 
             # Spawn new backend if under max size
             if len(self.backends) < self.max_size:
@@ -257,22 +329,25 @@ class BackendPool:
                     logger.info("Economically justified: Spawning new backend")
                     start = asyncio.get_event_loop().time()
                     instance = await self.provisioner.spawn_backend()
-                    logger.info(f"New backend ready. Time passed: {asyncio.get_event_loop().time() - start:.1f} seconds")
-                    bw = BackendWrapper(instance)
+                    startup_duration = asyncio.get_event_loop().time() - start
+                    logger.info(f"New backend ready. Time passed: {startup_duration:.1f} seconds")
+                    bw = BackendInstanceWrapper(instance)
                     bw.busy = True
                     self.backends.append(bw)
+                    await self.record_request_time(startup_sec=startup_duration, use_lock=False)
                     return bw
                 else:
                     logger.info("Spawn of backend not economically justified. Putting into queue.")
             else:
-                logger.info(f"Maximum pool size of {self.max_size} reached. Putting into queue.")
+                logger.info(f"Maximum pool size of {self.max_size} reached. "
+                            f"Putting into queue with length of {self.queue.qsize()}")
 
         # Queue request if all backends busy
         future: asyncio.Future = asyncio.get_event_loop().create_future()
         await self.queue.put(future)
         return await future
 
-    async def release_backend(self, bw: BackendWrapper) -> None:
+    async def release_backend(self, bw: BackendInstanceWrapper) -> None:
         """
         Release a backend, mark it idle, and serve queued requests if any.
         """
@@ -313,16 +388,17 @@ class BackendPool:
                 avg_startup, avg_inference = await self.get_average_times()
                 economic_idle_timeout = avg_startup + avg_inference
 
-                to_remove: List[BackendWrapper] = []
+                to_remove: List[BackendInstanceWrapper] = []
 
                 for bw in self.backends:
-                    if bw.busy:
+                    if bw.busy or bw.is_small:
                         # Skip backends that are currently processing a request
+                        # And never delete the small, hot instances
                         continue
 
                     idle_duration = now - bw.last_used
                     # Time since backend was originally started
-                    time_since_start = now - getattr(bw, "start_time", now)
+                    time_since_start = now - bw.start_time
 
                     # Calculate seconds until the next paid hour
                     # e.g., if instance started at 12:20, next paid hour ends at 13:20
@@ -362,7 +438,10 @@ class BackendPool:
                 result = await backend.run_on_backend("prompt")
         """
         bw = await self.get_backend()
-        backend_instance = BackendInstance(self.provisioner, bw.instance, inference_timeout=self.inference_timeout)
+        backend_instance = BackendInstance(self.provisioner,
+                                           bw.instance,
+                                           inference_timeout=self.inference_timeout,
+                                           size=bw.size)
         try:
             yield backend_instance
         finally:
@@ -423,5 +502,6 @@ class SingletonBackendPool:
                         idle_buffer=idle_buffer,
                         inference_timeout=backend_cfg.get("inference_timeout", 300)
                     )
-                    await cls._instance.init()
+                    warm_backend = backend_cfg.get("warm_backend", None)
+                    await cls._instance.init(warm_backend=warm_backend)
         return cls._instance
