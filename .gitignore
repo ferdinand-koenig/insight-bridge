@@ -2,5 +2,11 @@
 *.docx
 /logs
 
+# Exported Docker images
+*.tar
+
 # For a lot of data and copyright concerns:
 /data
+
+# Serialized chache
+*.pkl

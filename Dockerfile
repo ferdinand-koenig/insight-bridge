@@ -83,7 +83,6 @@ COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
 # 11. Copy project files (again — but clean, no dev tooling)
 COPY app/__init__.py app/logger.py ./app/
 COPY app/inference ./app/inference
-COPY app/llm_worker_provisioners ./app/llm_worker_provisioners
 #COPY ingest ./ingest
 COPY data/faiss_index ./data/
 COPY data/faiss_metadata.pkl ./data/
@@ -111,11 +110,12 @@ CMD ["python3", "-m", "app.inference.worker_server"]
 
 
 ########################################
-# Runtime Worker stage: minimal runtime with llama.cpp + Python
+# Server stage
 ########################################
 FROM python:3.10-slim AS server
 
-ENV POETRY_CACHE_DIR=/tmp/poetry_cache
+#ENV POETRY_CACHE_DIR=/tmp/poetry_cache \
+ENV POETRY_VIRTUALENVS_CREATE=false
 
 WORKDIR /insight-bridge
 
@@ -126,20 +126,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 COPY README.md ./
 COPY pyproject.toml poetry.lock ./
-COPY install.py .
+#COPY install.py .
 
 # 5. Install all dependencies, forcing llama-cpp-python to build from source
-RUN pip3 install poetry==2.1.2
-RUN python3 install.py server && \
-    rm -rf $POETRY_CACHE_DIR
+RUN pip3 install --no-cache-dir poetry==2.1.2
+RUN poetry self add poetry-plugin-export \
+    && poetry export \
+      -f requirements.txt \
+      --output requirements.txt \
+      --without-hashes \
+      --with server \
+    && pip3 uninstall -y poetry \
+    && rm -f pyproject.toml poetry.lock
 
 # Copy only what's necessary for Gradio server
 COPY app/__init__.py app/logger.py ./app/
 COPY app/server ./app/server
-COPY app/llm_worker_provisioners/__init__.py app/llm_worker_provisioners/base_provisioner.py ./app/llm_worker_provisioners/
+COPY app/llm_worker_provisioners/ ./app/llm_worker_provisioners/
+COPY assets ./assets
 COPY config.yaml ./
+COPY app/tests ./app/tests
+# TODO remove the test directory
 
-EXPOSE 443
+# Make the script executable
+RUN chmod +x ./app/server/entrypoint.sh
 
-ENTRYPOINT []
+# Set the entrypoint to the script
+ENTRYPOINT ["./app/server/entrypoint.sh"]
 CMD ["python3", "-m", "app.server.main"]

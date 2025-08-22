@@ -1,4 +1,4 @@
-user = "ferdinand.koenig"
+user = "ferdinand"
 domain = "koenix.de"
 obfuscated_email = f"{user} &lt;at&gt; {domain}"
 

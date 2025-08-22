@@ -23,11 +23,11 @@ RAG:
   batch_size: 4096 * 2   # Adjust to memory limits; Batch size for embedding computation
 
 gradio_server:
-  host: "127.0.0.1"  # Use 127.0.0.1 for local-only, 0.0.0.0 for public
-  port: 443      # Gradio web app port
+  host: "0.0.0.0"  # Use 127.0.0.1 for local-only, 0.0.0.0 for public
+  port: 8080      # Gradio web app port
   use_mock_answer: false
-  ssl_cert_path: /path/to/cert.pem
-  ssl_key_path: /path/to/key.pem
+  ssl_cert_path: /insight-bridge/certs/fullchain.pem
+  ssl_key_path: /insight-bridge/certs/privkey.pem
   hit_delay: 10
 
 worker_server:
@@ -42,14 +42,14 @@ backend_pool:
   inference_timeout: 600  #300
 
 hetzner:
-  snapshot_name: "my-llm-snapshot"
-  ssh_key_name: "my-key"
-  ssh_key_path: "~/.ssh/id_rsa"
+  snapshot_name: "docker-ce"
+  ssh_key_name: "llm-hetzner-main-server"
+  ssh_key_path: "~/.ssh/llm-hetzner-main-server"
   server_type: ["CX52", "CX42", "CPX41", "CX32", "CPX31"]
   private_network_name: "network-1"
 
 llm:
-  model_name: "/model/mistral-7b-instruct-v0.2.Q4_K_M.gguf"  # Path or HuggingFace model ID
+  model_name: "/model/Mistral-Nemo-12B-Instruct-2407-Q4_K_M.gguf"  # Path or HuggingFace model ID
   # other popular choices:
     #  mistral-7b-instruct-v0.2.Q4_K_M.gguf
     #  phi-2.Q4_K_M.gguf
@@ -58,15 +58,16 @@ llm:
     #  tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
   # "Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
   max_length: 256 #384    # Max output tokens for conciseness and efficiency
-  temperature: 0.1        # Lower = more deterministic answers
-  do_sample: false        # false = deterministic decoding
+  temperature: 0.4        # Lower = more deterministic answers
+  do_sample: true         # false = deterministic decoding
   no_repeat_ngram_size: 3 # Prevent repeated phrases
   num_beams: 1            # Beam search width (1 = greedy search)
   stop:
-    - "\n"                # Stop generation on newline
+    - "<end>"
+    - '<\s>'              # Stop generation on newline
   context_length: 4096    # Maximum context tokens the model can process
   # add n_threads if you want to specify a number of CPU threads to be used. Dont specify to use all
 #  n_threads: 6
 
 logging:
-  level: INFO
+  level: DEBUG

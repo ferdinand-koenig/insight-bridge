@@ -1,3 +1,4 @@
+from app import logger
 import asyncio
 import os
 import pickle
@@ -10,9 +11,12 @@ import yaml
 from .cache_utils import cache_with_hit_delay
 from .html_resources import spinner_html, info_box_html
 from .backend_pool_singleton import SingletonBackendPool
-from app import logger
 
-CACHE_FILE = Path("cache.pkl")
+# Get the project root (insight-bridge) relative to this file
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # app/server/main -> insight-bridge
+CACHE_DIR = PROJECT_ROOT / "cache"
+CACHE_FILE = CACHE_DIR / "cache.pkl"
+logger.info(f"Cache file: {CACHE_FILE}")
 
 # Make sure to include the html file in Docker when setting true. Consult README
 with open("config.yaml", "r") as f:
@@ -32,6 +36,7 @@ with open("config.yaml", "r") as f:
     del config
 
 if gradio_server_config.get("use_mock_answer", False):
+    logger.info("Using mock answer")
     # Mock for faster UI development
     with open("./dev_data/dummy_response.html", "r") as f:
         template_html = f.read()
@@ -71,59 +76,70 @@ if not ssl_enabled:
 
 
 async def answer_question_with_status(question):
-    look_ahead_result = await answer_question_cached.look_ahead(question)
-    backend_pool = await SingletonBackendPool.get_instance(pool_config)
-    has_ready = backend_pool.has_ready_instance()
-
-    logger.debug(
-        f"look_ahead result: {look_ahead_result}, has ready instance: {has_ready}"
-    )
-    # Note: There’s a potential race condition here. In the worst case, the user might see a "1–2 minutes" wait
-    # message instead of the more accurate ~10 minutes if a new worker is being launched.
-    # This does not affect functionality, only the displayed waiting time.
-
-    if not (look_ahead_result == "hit" or has_ready):
-        # if not cached result and has no ready instance
-        # yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
-        yield spinner_html(
-            "Thinking… A new worker is booting (up to 10 min) 🚀. "
-            "If that feels long, try one of the suggested questions. "
-            "Idle workers aren’t kept running—this saves money 💰 and is sustainable 🌱. Thanks for your patience!"
-            "<br><br>Did you know? Workers get a server that is more powerful to serve the request fast. "
-            "When it is economically no more justified to keep it running based on startup and processing time, "
-            "It gets shut down, but restarted on demand."
-        )
-
-    else:
+    if gradio_server_config.get("use_mock_answer", False):
+        logger.debug("Redirecting to mock answer")
         yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
-
-    loop = asyncio.get_event_loop()
-    start_time = loop.time()
-    if pool_config.get("backend", {}).get("max_backends", 5) == 0:
-        result, meta = ("Static demo. No backend available. Try another question that is possibly in cache",
-                        {"from_cache": True})
+        yield await answer_question_cached(question)
     else:
-        result, meta = await answer_question_cached(question)
+        look_ahead_result = await answer_question_cached.look_ahead(question)
+        backend_pool = await SingletonBackendPool.get_instance(pool_config)
+        has_ready = backend_pool.has_ready_instance()
 
-    logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
-    if type(result) is asyncio.Future:  # TODO fix whatever is happening here
-        result = await result
+        logger.debug(
+            f"look_ahead result: {look_ahead_result}, has ready instance: {has_ready}"
+        )
+        # Note: There’s a potential race condition here. In the worst case, the user might see a "1–2 minutes" wait
+        # message instead of the more accurate ~10 minutes if a new worker is being launched.
+        # This does not affect functionality, only the displayed waiting time.
 
-    elapsed = loop.time() - start_time
+        if not (look_ahead_result == "hit" or has_ready):
+            # if not cached result and has no ready instance
+            # yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
+            yield spinner_html(
+                "Thinking… A new worker is booting (up to 10 min) 🚀. "
+                "If that feels long, try one of the suggested questions. "
+                "Idle workers aren’t kept running—this saves money 💰 and is sustainable 🌱. Thanks for your patience!"
+                "<br><br>Did you know? Workers get a server that is more powerful to serve the request fast. "
+                "When it is economically no more justified to keep it running based on startup and processing time, "
+                "It gets shut down, but restarted on demand."
+            )
 
-    logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
+        else:
+            yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
 
-    if meta["from_cache"]:
-        result += (f"<br><i>This response was retrieved from the custom cache with "
-                   f"{gradio_server_config.get('hit_delay', 20)}s delay.</i>")
-    else:
-        logger.info(f"Time to respond to question '{question}': {elapsed:.1f} seconds")
-        result += "<br><i>This request spawned a new compute instance (Separate container).</i>"
-    yield result
+        loop = asyncio.get_event_loop()
+        start_time = loop.time()
+        if pool_config.get("backend", {}).get("max_backends", 5) == 0:
+            result, meta = ("Static demo. No backend available. Try another question that is possibly in cache",
+                            {"from_cache": True})
+        else:
+            result, meta = await answer_question_cached(question)
 
+        logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
+        if type(result) is asyncio.Future:  # TODO fix whatever is happening here
+            result = await result
+
+        elapsed = loop.time() - start_time
+
+        logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
+
+        if meta["from_cache"]:
+            result += (f"<br><i>This response was retrieved from the custom cache with "
+                       f"{gradio_server_config.get('hit_delay', 20)}s delay.</i>")
+        else:
+            logger.info(f"Time to respond to question '{question}': {elapsed:.1f} seconds")
+            result += "<br><i>This request spawned a new compute instance (Separate container).</i>"
+        yield result
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+# goes from app/server/main.py → /insight-bridge
+favicon_file = os.path.join(BASE_DIR, "assets", "favicon.ico")
 
 # UI definition:
-with gr.Blocks(title="InsightBridge: Semantic Q&A with LangChain & HuggingFace") as app:
+with gr.Blocks(
+    title="InsightBridge: Semantic Q&A with LangChain & HuggingFace",
+    favicon_path=favicon_file
+) as app:
     # Title and description
     gr.HTML("<h1 style='text-align: center;'>InsightBridge: Semantic Q&A with LangChain & HuggingFace</h1>")
     gr.Markdown(
@@ -147,10 +163,17 @@ with gr.Blocks(title="InsightBridge: Semantic Q&A with LangChain & HuggingFace")
             output_html = gr.HTML()
 
     # Connect submit button to function
-    submit_btn.click(answer_question_with_status,
-                     inputs=question_input,
-                     outputs=output_html,
-                     concurrency_limit=20)
+    submit_btn.click(
+        answer_question_with_status,
+        inputs=question_input,
+        outputs=output_html
+    )
+    # Allow Ctrl+Enter (or Enter) in the textbox to submit
+    question_input.submit(
+        answer_question_with_status,
+        inputs=question_input,
+        outputs=output_html
+    )
 
 
 stop_event = threading.Event()
@@ -181,12 +204,12 @@ def cleanup():
         stop_event.set()
 
 def launch_gradio():
-    app.queue()
+    app.queue(default_concurrency_limit=20)
     app.launch(
         server_name=server_host,
         server_port=server_port,
         ssl_certfile=SSL_CERT_PATH if ssl_enabled else None,
-        ssl_keyfile=SSL_KEY_PATH if ssl_enabled else None
+        ssl_keyfile=SSL_KEY_PATH if ssl_enabled else None,
     )
 
 

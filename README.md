@@ -444,3 +444,37 @@ peotry env remove python
 poetry env use python3.10
 
 ```
+
+#### Start the docker on the server
+```bash
+docker run -it --rm \
+  -v /root/config.yaml:/insight-bridge/config.yaml \
+  -v /root/dev_data/dummy_response.html:/insight-bridge/dev_data/dummy_response.html \
+  -v /root/logs/:/insight-bridge/logs/ \
+  -v /root/.ssh/llm-hetzner-main-server:/root/.ssh/llm-hetzner-main-server:ro \
+  -v /root/.ssh/llm-hetzner-main-server.pub:/root/.ssh/llm-hetzner-main-server.pub:ro \
+  -v /root/cache/:/insight-bridge/cache/ \
+  -p 8080:8080 \
+  -e HETZNER_API_TOKEN=$HETZNER_API_TOKEN \
+  insight-bridge-server:latest \
+  bash
+  
+  python -m app.hetzner_test.test_hetzner
+
+```
+
+#### Build server and send to host
+```commandline
+docker buildx bake server; docker save -o insight-bridge-server.tar insight-bridge-server;  scp -i 'C:\Users\koenig\.ssh\llm-hetzner' .\insight-bridge-server.tar root@95.217.211.155:/root/insight-bridge-server.tar
+```
+
+#### Manually start worker
+```bash
+docker run -it \
+  -v /root/config.yaml:/insight-bridge/config.yaml \
+  -v /root/logs/:/insight-bridge/logs/ \
+  -v /root/model/:/model/:ro \
+  -v /root/prompt_template.yaml:/insight-bridge/prompt_template.yaml \
+  -p 8000:8000 \
+  insight-bridge-worker:latest 
+```

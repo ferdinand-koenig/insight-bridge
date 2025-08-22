@@ -15,8 +15,10 @@ import asyncio
 from typing import Any, Dict, List, Optional
 
 import requests
-from sshtunnel import SSHTunnelForwarder
+from .ssh_tunnel import SSHTunnel
 from hcloud import Client
+from hcloud.images import Image
+from hcloud.server_types import ServerType
 
 from app import logger
 from .base_provisioner import BaseProvisioner
@@ -44,16 +46,18 @@ class HetznerProvisioner(BaseProvisioner):
         self.ssh_private_key_path = ssh_private_key_path
         self.private_network_name = private_network_name
         self.server_types = server_types or ["CX52", "CX42", "CPX41", "CX32", "CPX31"] # default if not provided
+        self.locations = ["hel1", "nbg1", "fsn1"]  # TODO make argument
 
-    async def spawn_backend(self) -> Dict[str, Any]:
+    async def spawn_backend(self, timeout:int=600) -> Dict[str, Any]:
         """
         Spawn a Hetzner Cloud server using the specified snapshot and SSH key.
 
         Returns:
             dict: Backend information including IP, SSH user, SSH key path, and server ID.
         """
+        # TODO add argument for timeout
         # Find snapshot
-        snapshots = self.client.images.get_all(type="snapshot")
+        snapshots = self.client.images.get_all() # type="snapshot")
         snapshot = next((s for s in snapshots if s.name == self.snapshot_name), None)
         if not snapshot:
             logger.error(f"Snapshot '{self.snapshot_name}' not found")
@@ -77,34 +81,71 @@ class HetznerProvisioner(BaseProvisioner):
                 f"Private network '{self.private_network_name}' not found. Create it manually in Hetzner Cloud."
             )
 
-        for priority, stype in enumerate(self.server_types, start=1):
-            try:
-                server_name = f"llm-instance-{int(asyncio.get_event_loop().time())}"
-                server = self.client.servers.create(
-                    name=server_name,
-                    server_type=stype,
-                    image=snapshot.id,
-                    ssh_keys=[key.id],
-                    networks=[net.id],  # ensure attached to private network
-                    wait_for_active=True,
-                    public_net=False,
-                )
-                logger.info(
-                    f"Spawned Hetzner server {server_name} "
-                    f"({server.private_net[0].ip if server.private_net else server.public_net.ipv4.ip}) "
-                    f"using {stype} (priority {priority})"
-                )
-                return {
-                    "ip": server.private_net[0].ip,
-                    "ssh_user": "root",
-                    "ssh_key_path": self.ssh_private_key_path,
-                    "server_id": server.id,
-                    "server_type": stype,
-                    "priority": priority
-                }
-            except Exception as e:
-                logger.warning(f"Failed to spawn server type {stype} (priority {priority}): {e}")
-                continue
+            # Try all server_type + location combinations
+        for stype_priority, stype_name in enumerate(self.server_types, start=1):
+            stype = ServerType(name=stype_name.lower())
+            for loc_priority, loc_name in enumerate(self.locations, start=1):
+                try:
+                    location = self.client.locations.get_by_name(loc_name)
+                    server_name = f"llm-{stype_name.lower()}-{loc_name}-{int(asyncio.get_event_loop().time())}"
+                    response = self.client.servers.create(
+                        name=server_name,
+                        server_type=stype,
+                        image=Image(id=snapshot.id),
+                        ssh_keys=[key],
+                        networks=[net],
+                        location=location,
+                        public_net=False,  # TODO some bug here
+                    )
+                    server = response.server
+                    server_id = server.id
+
+                    # --- WAIT UNTIL SERVER IS RUNNING ---
+                    elapsed= 0
+                    interval= 5
+                    while elapsed < timeout:
+                        s = self.client.servers.get_by_id(server_id)
+                        if s.status == "running":
+                            break
+                        logger.info(f"Waiting for server {server_name} to become active (status: {s.status})...")
+                        await asyncio.sleep(interval)
+                        elapsed += interval
+                    else:
+                        logger.error(f"Server {server_name} did not become active within {timeout} seconds.")
+                        raise RuntimeError(f"Server {server_name} did not become active within {timeout} seconds.")
+
+                    ip = s.private_net[0].ip if s.private_net else s.public_net.ipv4.ip
+
+                    logger.info(
+                        f"Spawned Hetzner server {server_name} ({ip}) "
+                        f"using {stype_name} (priority {stype_priority}) "
+                        f"in {loc_name} (priority {loc_priority})."
+                    )
+
+                    # TODO health check
+
+                    return {
+                        "name": server_name,
+                        "ip": ip,
+                        "ssh_user": "root",
+                        "ssh_key_path": self.ssh_private_key_path,
+                        "server_id": server_id,
+                        "server_type": stype.name,
+                        "stype_priority": stype_priority,
+                        "loc_priority": loc_priority,
+                        "location": loc_name
+                    }
+                except RuntimeError as e:
+                    msg = str(e)
+                    if "did not become active" in msg:
+                        # Re-raise the exception to propagate it
+                        raise
+                    else:
+                        logger.warning(f"Failed {stype} in {loc_name}: {e}")
+                        continue
+                except Exception as e:
+                    logger.warning(f"Failed {stype} in {loc_name}: {e}")
+                    continue
 
         logger.error("All server types failed. Could not spawn backend.")
         raise RuntimeError("All server types failed. Could not spawn backend.")
@@ -151,19 +192,18 @@ class HetznerProvisioner(BaseProvisioner):
         """
         logger.debug(f"Opening SSH tunnel to backend {ip}…")
         try:
-            with SSHTunnelForwarder(
+            with SSHTunnel(
                 (ip, 22),
                 ssh_username=user,
-                ssh_private_key=key_path,
+                ssh_pkey=key_path,
                 remote_bind_address=('127.0.0.1', 8000),
                 local_bind_address=('127.0.0.1', 0)
             ) as tunnel:
-                tunnel.start()
                 local_port = tunnel.local_bind_port
                 logger.debug(f"Sending inference request to backend {ip} via local port {local_port}")
-                resp = requests.post(
+                resp = requests.get(
                     f"http://127.0.0.1:{local_port}/infer",
-                    json={"prompt": prompt},
+                    params={"question": prompt},
                     timeout=timeout
                 )
                 resp.raise_for_status()
@@ -173,12 +213,13 @@ class HetznerProvisioner(BaseProvisioner):
             logger.error(f"Error communicating with backend {ip}: {e}")
             return f"ERROR: {str(e)}"
 
-    async def terminate_backend(self, backend: Dict[str, Any]) -> None:
+    async def terminate_backend(self, backend: Dict[str, Any], timeout=60) -> None:
         """
-        Terminate the Hetzner backend server.
+        Terminate the Hetzner backend server and confirm deletion.
 
         Args:
             backend (dict): Backend information from spawn_backend.
+            timeout (int): seconds to wait for deletion
         """
         server_id = backend.get("server_id")
         if not server_id:
@@ -186,9 +227,24 @@ class HetznerProvisioner(BaseProvisioner):
             return
 
         server = self.client.servers.get_by_id(server_id)
-        if server:
-            private_ip = server.private_net[0].ip if server.private_net else "unknown"
-            logger.info(f"Deleting Hetzner server {server.name} (private IP {private_ip})")
-            server.delete()
-        else:
+        if not server:
             logger.error(f"Server {server_id} not found. It may have already been deleted.")
+            return
+
+        private_ip = server.private_net[0].ip if server.private_net else "unknown"
+        logger.info(f"Deleting Hetzner server {server.name} (private IP {private_ip})")
+        server.delete()
+
+        interval = 2  # seconds between checks
+        elapsed = 0
+
+        while elapsed < timeout:
+            server_check = self.client.servers.get_by_id(server_id)
+            if server_check is None:
+                logger.info(f"Server {server_id} successfully deleted.")
+                return
+            await asyncio.sleep(interval)
+            elapsed += interval
+
+        # If we reach here, the server still exists
+        logger.error(f"Server {server_id} still exists after {timeout} seconds!")
