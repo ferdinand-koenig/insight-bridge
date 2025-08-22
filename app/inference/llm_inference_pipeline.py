@@ -183,7 +183,7 @@ def answer_question(question: str) -> str:
     result = qa_chain.invoke({'query': question})
     end_time = time.time()
     elapsed = end_time - start_time
-    logger.info("\nQuestion:", question)
+    logger.info(f"\nQuestion: {question}")
     logger.info(f"Time taken for inference: {elapsed:.1f} seconds")
     # Build HTML for sources with clickable links
     sources_html = format_sources_with_excerpt_and_arxiv_link(result["source_documents"])
