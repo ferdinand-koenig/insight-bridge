@@ -15,8 +15,30 @@ from .backend_pool_singleton import SingletonBackendPool
 # Get the project root (insight-bridge) relative to this file
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # app/server/main -> insight-bridge
 CACHE_DIR = PROJECT_ROOT / "cache"
+
 CACHE_FILE = CACHE_DIR / "cache.pkl"
 logger.info(f"Cache file: {CACHE_FILE}")
+
+# Counter file path
+COUNTER_FILE = CACHE_DIR / "counters.pkl"
+logger.info(f"Counter file: {COUNTER_FILE}")
+
+# Initialize counters
+counter_lock = threading.Lock()
+page_load_count = 0
+question_count = 0
+
+if COUNTER_FILE.exists():
+    try:
+        with open(COUNTER_FILE, "rb") as f:
+            counters = pickle.load(f)
+            page_load_count = counters.get("page_load_count", 0)
+            question_count = counters.get("question_count", 0)
+            logger.info(f"Loaded counters: page_load_count={page_load_count}, question_count={question_count}")
+    except Exception as e:
+        logger.warning(f"Failed to load counters: {e}")
+else:
+    logger.warning(f"Counter file {COUNTER_FILE} not found.")
 
 # Make sure to include the html file in Docker when setting true. Consult README
 with open("config.yaml", "r") as f:
@@ -46,7 +68,7 @@ if gradio_server_config.get("use_mock_answer", False):
         return template_html.replace("{{QUESTION}}", question)
 
 else:
-    @cache_with_hit_delay(maxsize=8192, hit_delay=gradio_server_config.get("hit_delay", 20),
+    @cache_with_hit_delay(maxsize=8192, hit_delay=gradio_server_config.get("hit_delay", 10),
                           return_with_meta=True, logger=logger)
     async def answer_question_cached(question: str):
         """
@@ -54,11 +76,28 @@ else:
             - MODE=="local": spin up local container
             - MODE=="hetzner": spin up Hetzner VPS
         """
+        if pool_config.get("backend", {}).get("max_backends", 5) == 0:
+            return "Static demo. No backend available. Try another question that is possibly in cache"
+
         backend_pool = await SingletonBackendPool.get_instance(pool_config)
 
         async with backend_pool.acquire() as backend:
+            start = asyncio.get_event_loop().time()
             response = await backend.run_on_backend(question)
+            inference_duration = asyncio.get_event_loop().time() - start
+            if not backend.is_small:
+                await backend_pool.record_request_time(inference_sec=inference_duration)
             return response
+
+    # inject cache
+    if CACHE_FILE.exists():
+        try:
+            with open(CACHE_FILE, "rb") as f:
+                data = pickle.load(f)
+            answer_question_cached.load_serializable_cache(data)
+            logger.info(f"Restored {len(data)} cache entries from {CACHE_FILE}")
+        except Exception as e:
+            logger.warning(f"Failed to load cache: {e}")
 
 
 server_host = gradio_server_config.get("host", "0.0.0.0")
@@ -76,6 +115,12 @@ if not ssl_enabled:
 
 
 async def answer_question_with_status(question):
+    # question counter
+    global question_count
+    with counter_lock:
+        question_count += 1
+    logger.info(f"Total questions asked: {question_count}")
+
     if gradio_server_config.get("use_mock_answer", False):
         logger.debug("Redirecting to mock answer")
         yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
@@ -84,6 +129,7 @@ async def answer_question_with_status(question):
         look_ahead_result = await answer_question_cached.look_ahead(question)
         backend_pool = await SingletonBackendPool.get_instance(pool_config)
         has_ready = backend_pool.has_ready_instance()
+        capacity = backend_pool.get_capacity()
 
         logger.debug(
             f"look_ahead result: {look_ahead_result}, has ready instance: {has_ready}"
@@ -95,25 +141,35 @@ async def answer_question_with_status(question):
         if not (look_ahead_result == "hit" or has_ready):
             # if not cached result and has no ready instance
             # yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
-            yield spinner_html(
-                "Thinking… A new worker is booting (up to 10 min) 🚀. "
-                "If that feels long, try one of the suggested questions. "
-                "Idle workers aren’t kept running—this saves money 💰 and is sustainable 🌱. Thanks for your patience!"
-                "<br><br>Did you know? Workers get a server that is more powerful to serve the request fast. "
-                "When it is economically no more justified to keep it running based on startup and processing time, "
-                "It gets shut down, but restarted on demand."
-            )
+            if capacity["current_capacity"] > 0:
+                yield spinner_html(
+                    "Thinking… A new worker is booting (up to 15 min) 🚀. "
+                    "If that feels long, try one of the suggested questions. "
+                    "Idle workers aren’t kept running—this saves money 💰 and is sustainable 🌱. Thanks for your patience!"
+                    "<br><br>Did you know? Workers get a server that is more powerful to serve the request fast. "
+                    "When it is economically no more justified to keep it running based on startup and processing time, "
+                    "it gets shut down, but restarted on demand."
+                )
+            else:
+                yield spinner_html(
+                    f"We are currently experiencing high load. All {capacity['max_size']} workers are spawned and busy."
+                    f" Your request is queued at position {capacity['queued_requests']} "
+                    f"and will be processed in a couple of minutes. "
+                    f"(Please note that the position cannot be updated). "
+                    f"<br><br>Did you know? Workers get a server that is more powerful to serve the request fast. "
+                    f"When it is economically no more justified to keep it running based on startup and processing time, "
+                    f"it gets shut down, but restarted on demand. "
+                    f"<br><br> To not overprovision, a limit of {capacity['max_size']} workers is set."
+                    f"<br><br> Tight on time? Try one of the suggested questions or come later again."
+                )
 
         else:
-            yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
+            yield spinner_html("Thinking… This usually takes ~2-3 minutes as no GPU resources are used.")
 
         loop = asyncio.get_event_loop()
         start_time = loop.time()
-        if pool_config.get("backend", {}).get("max_backends", 5) == 0:
-            result, meta = ("Static demo. No backend available. Try another question that is possibly in cache",
-                            {"from_cache": True})
-        else:
-            result, meta = await answer_question_cached(question)
+
+        result, meta = await answer_question_cached(question)
 
         logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
         if type(result) is asyncio.Future:  # TODO fix whatever is happening here
@@ -138,8 +194,12 @@ favicon_file = os.path.join(BASE_DIR, "assets", "favicon.ico")
 # UI definition:
 with gr.Blocks(
     title="InsightBridge: Semantic Q&A with LangChain & HuggingFace",
-    favicon_path=favicon_file
 ) as app:
+    # GET method counter
+    with counter_lock:
+        page_load_count += 1
+    logger.info(f"Page loads: {page_load_count}")
+
     # Title and description
     gr.HTML("<h1 style='text-align: center;'>InsightBridge: Semantic Q&A with LangChain & HuggingFace</h1>")
     gr.Markdown(
@@ -201,6 +261,20 @@ def cleanup():
     except Exception as e:
         logger.exception(f"Error during backend cleanup: {e}")
     finally:
+
+        # save counter
+        try:
+            with counter_lock:
+                counters = {
+                    "page_load_count": page_load_count,
+                    "question_count": question_count
+                }
+            with open(COUNTER_FILE, "wb") as f:
+                pickle.dump(counters, f)
+            logger.info(f"Saved counters: page_load_count={page_load_count}, question_count={question_count}")
+        except Exception as e:
+            logger.exception(f"Error saving counters: {e}")
+
         stop_event.set()
 
 def launch_gradio():
@@ -210,6 +284,7 @@ def launch_gradio():
         server_port=server_port,
         ssl_certfile=SSL_CERT_PATH if ssl_enabled else None,
         ssl_keyfile=SSL_KEY_PATH if ssl_enabled else None,
+        favicon_path=favicon_file
     )
 
 
