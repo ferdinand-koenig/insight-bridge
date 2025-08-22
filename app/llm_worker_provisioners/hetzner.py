@@ -12,16 +12,21 @@ Workflow:
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import requests
 from .ssh_tunnel import SSHTunnel
 from hcloud import Client
 from hcloud.images import Image
 from hcloud.server_types import ServerType
+from hcloud._exceptions import APIException
+from hcloud.servers.domain import ServerCreatePublicNetwork
 
 from app import logger
 from .base_provisioner import BaseProvisioner
+
+
+
 
 
 class HetznerProvisioner(BaseProvisioner):
@@ -30,13 +35,13 @@ class HetznerProvisioner(BaseProvisioner):
     """
 
     def __init__(self, api_token: str, snapshot_name: str, ssh_key_name: str,
-                 ssh_private_key_path: str, server_types: Optional[List[str]] = None,
+                 ssh_private_key_path: Union[str, int], server_types: Optional[List[str]] = None,
                  private_network_name: str=None):
         """
         Args:
             api_token (str): Hetzner Cloud API token
             snapshot_name (str): Snapshot image name containing preloaded LLM
-            ssh_key_name (str): SSH key name registered in Hetzner console
+            ssh_key_name (str | int): SSH key name registered in Hetzner console
             ssh_private_key_path (str): Local path to private key for SSH
             server_types (List[str]): Ordered list of server types to try.
         """
@@ -48,7 +53,7 @@ class HetznerProvisioner(BaseProvisioner):
         self.server_types = server_types or ["CX52", "CX42", "CPX41", "CX32", "CPX31"] # default if not provided
         self.locations = ["hel1", "nbg1", "fsn1"]  # TODO make argument
 
-    async def spawn_backend(self, timeout:int=600) -> Dict[str, Any]:
+    async def spawn_backend(self, timeout:int=900) -> Dict[str, Any]:
         """
         Spawn a Hetzner Cloud server using the specified snapshot and SSH key.
 
@@ -58,7 +63,12 @@ class HetznerProvisioner(BaseProvisioner):
         # TODO add argument for timeout
         # Find snapshot
         snapshots = self.client.images.get_all() # type="snapshot")
-        snapshot = next((s for s in snapshots if s.name == self.snapshot_name), None)
+        snapshot = next(
+            (
+                s for s in snapshots
+                if s.name == self.snapshot_name or str(s.id) == str(self.snapshot_name)
+            ), None
+        )
         if not snapshot:
             logger.error(f"Snapshot '{self.snapshot_name}' not found")
             raise RuntimeError(f"Snapshot '{self.snapshot_name}' not found")
@@ -95,7 +105,7 @@ class HetznerProvisioner(BaseProvisioner):
                         ssh_keys=[key],
                         networks=[net],
                         location=location,
-                        public_net=False,  # TODO some bug here
+                        public_net=ServerCreatePublicNetwork(enable_ipv4=False, enable_ipv6=True),
                     )
                     server = response.server
                     server_id = server.id
@@ -103,18 +113,27 @@ class HetznerProvisioner(BaseProvisioner):
                     # --- WAIT UNTIL SERVER IS RUNNING ---
                     elapsed= 0
                     interval= 5
+                    last_status = None
+                    next_update = 24  # first 25 no update
                     while elapsed < timeout:
                         s = self.client.servers.get_by_id(server_id)
                         if s.status == "running":
                             break
-                        logger.info(f"Waiting for server {server_name} to become active (status: {s.status})...")
+                        if next_update == 0 or last_status != s.status:
+                            next_update = 9 if last_status else 24  # update every 10 except for first
+                            last_status = s.status
+                            logger.info(f"Waiting for server {server_name} to become active (status: {s.status})...")
+                        else:
+                            next_update -= 1
+                            logger.debug(f"Waiting for server {server_name} to become active (status: {s.status})...")
+
                         await asyncio.sleep(interval)
                         elapsed += interval
                     else:
                         logger.error(f"Server {server_name} did not become active within {timeout} seconds.")
                         raise RuntimeError(f"Server {server_name} did not become active within {timeout} seconds.")
 
-                    ip = s.private_net[0].ip if s.private_net else s.public_net.ipv4.ip
+                    ip = s.private_net[0].ip
 
                     logger.info(
                         f"Spawned Hetzner server {server_name} ({ip}) "
@@ -122,7 +141,7 @@ class HetznerProvisioner(BaseProvisioner):
                         f"in {loc_name} (priority {loc_priority})."
                     )
 
-                    # TODO health check
+                    await self.health_check(ip)
 
                     return {
                         "name": server_name,
@@ -149,6 +168,34 @@ class HetznerProvisioner(BaseProvisioner):
 
         logger.error("All server types failed. Could not spawn backend.")
         raise RuntimeError("All server types failed. Could not spawn backend.")
+
+
+    async def health_check(self, ip, timeout_health = 360):
+        # Health check via SSH tunnel
+        start_time = asyncio.get_event_loop().time()
+        interval = 2
+        while True:
+            try:
+                with SSHTunnel((ip, 22),
+                               "root",
+                                self.ssh_private_key_path,
+                               remote_bind_address=('127.0.0.1', 8000),
+                               local_bind_address=('127.0.0.1', 0)
+                               ) as tunnel:
+                    local_port = tunnel.local_bind_port
+                    resp = await asyncio.to_thread(requests.get, f"http://127.0.0.1:{local_port}/health", timeout=1)
+                # if response returns 200, we're good
+                if resp.status_code == 200:
+                    logger.info(f"Backend at {ip} is healthy (responded to GET /health)")
+                    break
+            except Exception:
+                pass
+
+            if asyncio.get_event_loop().time() - start_time > timeout_health:
+                logger.error(f"Worker at {ip} did not become ready in {timeout_health}s")
+                raise TimeoutError(f"Worker at {ip} did not become ready in {timeout_health}s")
+
+            await asyncio.sleep(interval)
 
 
     async def run_on_backend(self, backend: Dict[str, Any], prompt: str, timeout: int = 600) -> str:
@@ -213,38 +260,68 @@ class HetznerProvisioner(BaseProvisioner):
             logger.error(f"Error communicating with backend {ip}: {e}")
             return f"ERROR: {str(e)}"
 
-    async def terminate_backend(self, backend: Dict[str, Any], timeout=60) -> None:
+
+    async def terminate_backend(self, backend: dict, timeout=60) -> None:
         """
-        Terminate the Hetzner backend server and confirm deletion.
+        Terminate a Hetzner Cloud backend server and confirm its deletion.
+
+        This method attempts to delete the server identified by `server_id` in the
+        provided `backend` dictionary. It waits up to `timeout` seconds, polling
+        the Hetzner Cloud API to ensure the server is fully removed.
 
         Args:
-            backend (dict): Backend information from spawn_backend.
-            timeout (int): seconds to wait for deletion
+            backend (dict): Dictionary containing backend server information,
+                must include the key "server_id".
+            timeout (int, optional): Maximum time in seconds to wait for deletion.
+                Defaults to 60 seconds.
+
+        Notes:
+            - If the server is already deleted or not found, a warning is logged
+              and the method returns.
+            - API exceptions other than "not_found" are re-raised.
+            - The method uses asynchronous polling to confirm deletion.
         """
         server_id = backend.get("server_id")
         if not server_id:
             logger.error(f"No server ID found in backend info: {backend}")
             return
 
-        server = self.client.servers.get_by_id(server_id)
-        if not server:
-            logger.error(f"Server {server_id} not found. It may have already been deleted.")
+        try:
+            server = self.client.servers.get_by_id(server_id)
+        except APIException as e:
+            if "not_found" in str(e):
+                logger.warning(f"Server {server_id} not found (already deleted).")
+                return
+            else:
+                raise
+
+        if server is None:
+            logger.warning(f"Server {server_id} not found (already deleted).")
             return
 
         private_ip = server.private_net[0].ip if server.private_net else "unknown"
         logger.info(f"Deleting Hetzner server {server.name} (private IP {private_ip})")
         server.delete()
 
-        interval = 2  # seconds between checks
+        # Wait until deletion confirmed
+        interval = 2
         elapsed = 0
-
         while elapsed < timeout:
-            server_check = self.client.servers.get_by_id(server_id)
+            try:
+                server_check = self.client.servers.get_by_id(server_id)
+            except APIException as e:
+                if "not_found" in str(e):
+                    logger.info(f"Server {server_id} successfully deleted.")
+                    return
+                else:
+                    raise
+
             if server_check is None:
                 logger.info(f"Server {server_id} successfully deleted.")
                 return
+
             await asyncio.sleep(interval)
             elapsed += interval
 
-        # If we reach here, the server still exists
         logger.error(f"Server {server_id} still exists after {timeout} seconds!")
+
