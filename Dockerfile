@@ -87,6 +87,7 @@ COPY app/inference ./app/inference
 COPY data/faiss_index ./data/
 COPY data/faiss_metadata.pkl ./data/
 COPY README.md .
+COPY config.yaml prompt_template.yaml ./
 
 ## Copy backend .so files into /insight-bridge
 #RUN cp /app/libllama.so /insight-bridge/ && \
