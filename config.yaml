@@ -35,7 +35,7 @@ worker_server:
   port: 8000
 
 backend_pool:
-  mode: "local"  # "local" or "hetzner"
+  mode: "hetzner"  # "local" or "hetzner"
   max_backends: 5
   idle_buffer: 360  # seconds
   health_timeout: 600
@@ -70,4 +70,4 @@ llm:
 #  n_threads: 6
 
 logging:
-  level: DEBUG
+  level: INFO
