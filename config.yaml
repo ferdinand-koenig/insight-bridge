@@ -49,7 +49,7 @@ hetzner:
   private_network_name: "network-1"
 
 llm:
-  model_name: "/model/mistral-7b-instruct-v0.2.Q4_K_M.gguf"  # Path or HuggingFace model ID
+  model_name: "/model/Mistral-Nemo-12B-Instruct-2407-Q4_K_M.gguf"  # Path or HuggingFace model ID
   # other popular choices:
     #  mistral-7b-instruct-v0.2.Q4_K_M.gguf
     #  phi-2.Q4_K_M.gguf
@@ -58,12 +58,13 @@ llm:
     #  tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
   # "Qwen/Qwen2.5-0.5B-Instruct",  #  "Qwen/Qwen3-0.6B",  # "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
   max_length: 256 #384    # Max output tokens for conciseness and efficiency
-  temperature: 0.1        # Lower = more deterministic answers
-  do_sample: false        # false = deterministic decoding
+  temperature: 0.4        # Lower = more deterministic answers
+  do_sample: true         # false = deterministic decoding
   no_repeat_ngram_size: 3 # Prevent repeated phrases
   num_beams: 1            # Beam search width (1 = greedy search)
   stop:
-    - "\n"                # Stop generation on newline
+    - "<end>"
+    - '<\s>'              # Stop generation on newline
   context_length: 4096    # Maximum context tokens the model can process
   # add n_threads if you want to specify a number of CPU threads to be used. Dont specify to use all
 #  n_threads: 6
