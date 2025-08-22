@@ -201,9 +201,9 @@ class HetznerProvisioner(BaseProvisioner):
             ) as tunnel:
                 local_port = tunnel.local_bind_port
                 logger.debug(f"Sending inference request to backend {ip} via local port {local_port}")
-                resp = requests.post(
+                resp = requests.get(
                     f"http://127.0.0.1:{local_port}/infer",
-                    json={"prompt": prompt},
+                    params={"question": prompt},
                     timeout=timeout
                 )
                 resp.raise_for_status()
