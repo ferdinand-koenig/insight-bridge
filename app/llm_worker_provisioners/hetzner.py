@@ -213,12 +213,13 @@ class HetznerProvisioner(BaseProvisioner):
             logger.error(f"Error communicating with backend {ip}: {e}")
             return f"ERROR: {str(e)}"
 
-    async def terminate_backend(self, backend: Dict[str, Any]) -> None:
+    async def terminate_backend(self, backend: Dict[str, Any], timeout=60) -> None:
         """
-        Terminate the Hetzner backend server.
+        Terminate the Hetzner backend server and confirm deletion.
 
         Args:
             backend (dict): Backend information from spawn_backend.
+            timeout (int): seconds to wait for deletion
         """
         server_id = backend.get("server_id")
         if not server_id:
@@ -226,9 +227,24 @@ class HetznerProvisioner(BaseProvisioner):
             return
 
         server = self.client.servers.get_by_id(server_id)
-        if server:
-            private_ip = server.private_net[0].ip if server.private_net else "unknown"
-            logger.info(f"Deleting Hetzner server {server.name} (private IP {private_ip})")
-            server.delete()
-        else:
+        if not server:
             logger.error(f"Server {server_id} not found. It may have already been deleted.")
+            return
+
+        private_ip = server.private_net[0].ip if server.private_net else "unknown"
+        logger.info(f"Deleting Hetzner server {server.name} (private IP {private_ip})")
+        server.delete()
+
+        interval = 2  # seconds between checks
+        elapsed = 0
+
+        while elapsed < timeout:
+            server_check = self.client.servers.get_by_id(server_id)
+            if server_check is None:
+                logger.info(f"Server {server_id} successfully deleted.")
+                return
+            await asyncio.sleep(interval)
+            elapsed += interval
+
+        # If we reach here, the server still exists
+        logger.error(f"Server {server_id} still exists after {timeout} seconds!")
