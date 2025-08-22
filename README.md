@@ -463,7 +463,18 @@ docker run -it --rm \
 
 ```
 
+#### Build server and send to host
 ```commandline
 docker buildx bake server; docker save -o insight-bridge-server.tar insight-bridge-server;  scp -i 'C:\Users\koenig\.ssh\llm-hetzner' .\insight-bridge-server.tar root@95.217.211.155:/root/insight-bridge-server.tar
 ```
 
+#### Manually start worker
+```bash
+docker run -it \
+  -v /root/config.yaml:/insight-bridge/config.yaml \
+  -v /root/logs/:/insight-bridge/logs/ \
+  -v /root/model/:/model/:ro \
+  -v /root/prompt_template.yaml:/insight-bridge/prompt_template.yaml \
+  -p 8000:8000 \
+  insight-bridge-worker:latest 
+```
