@@ -36,8 +36,17 @@ async def main():
     )
 
     response = await provisioner.run_on_backend(backend, prompt="What is an LLM?", timeout=900)
-
     print(response)
+    print("\n")
+    response = await provisioner.run_on_backend(backend, prompt="What is an LLM? Explain for children.", timeout=900)
+    print(response)
+    print("\n")
+    response = await provisioner.run_on_backend(backend, prompt="What are KG-TRACES?", timeout=900)
+    print(response)
+    print("\n")
+    response = await provisioner.run_on_backend(backend, prompt="What are the dangers and risks of LLMs?", timeout=900)
+    print(response)
+    print("\n")
 
 
 
