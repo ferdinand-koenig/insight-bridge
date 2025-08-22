@@ -150,6 +150,16 @@ def cache_with_hit_delay(maxsize=128, hit_delay=0, return_with_meta=False, logge
 
             wrapper.get_serializable_cache = get_serializable_cache
 
+            def load_serializable_cache(data: dict):
+                """Restore previously dumped cache results into the current cache."""
+                with (yield from lock):  # use async lock
+                    for k, v in data.items():
+                        fut = asyncio.get_event_loop().create_future()
+                        fut.set_result(v)
+                        cache[k] = fut
+
+            wrapper.load_serializable_cache = load_serializable_cache
+
             return wrapper
 
         else:
@@ -219,6 +229,13 @@ def cache_with_hit_delay(maxsize=128, hit_delay=0, return_with_meta=False, logge
                     return dict(cache)
 
             wrapper.get_serializable_cache = get_serializable_cache
+
+            def load_serializable_cache(data: dict):
+                with lock:
+                    cache.clear()
+                    cache.update(data)
+
+            wrapper.load_serializable_cache = load_serializable_cache
 
             return wrapper
 

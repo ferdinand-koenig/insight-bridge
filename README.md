@@ -470,11 +470,11 @@ docker buildx bake server; docker save -o insight-bridge-server.tar insight-brid
 
 #### Manually start worker
 ```bash
-docker run -it \
-  -v /root/config.yaml:/insight-bridge/config.yaml \
-  -v /root/logs/:/insight-bridge/logs/ \
-  -v /root/model/:/model/:ro \
-  -v /root/prompt_template.yaml:/insight-bridge/prompt_template.yaml \
-  -p 8000:8000 \
-  insight-bridge-worker:latest 
+docker run --name llm_app \
+ --restart unless-stopped \
+ -it \
+ -v /root/logs/:/insight-bridge/logs/ \
+ -v /root/model/:/model/:ro \
+ -p 8000:8000 \
+ insight-bridge-worker:latest
 ```
