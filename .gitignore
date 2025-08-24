@@ -10,3 +10,5 @@
 
 # Serialized chache
 *.pkl
+
+*/__pycache__/*
