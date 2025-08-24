@@ -60,6 +60,9 @@ aiohttp = "^3.12.15"
 requests = "^2.32.4"
 sshtunnel = "^0.4.0"
 hcloud = "^2.5.4"
+pywebpush = "^2.0.3"
+rjsmin = "^1.2.4"
+ecdsa = "^0.19.1"
 
 [tool.poetry.group.dev]
 optional = true
