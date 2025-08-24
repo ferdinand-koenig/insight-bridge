@@ -1,3 +1,6 @@
+import json
+import time
+
 from app import logger
 import asyncio
 import os
@@ -6,11 +9,25 @@ import signal
 import threading
 from pathlib import Path
 
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 import gradio as gr
 import yaml
+from pywebpush import webpush, WebPushException
+from .webpage import vapid_generator
 from .cache_utils import cache_with_hit_delay
-from .webpage_resources import spinner_html, info_box_html, notification_js
+from .webpage.webpage_resources import spinner_html, info_box_html, notification_js
 from .backend_pool_singleton import SingletonBackendPool
+
+vapid = vapid_generator.generate_vapid_keypair()
+VAPID_PUBLIC_KEY = vapid["public_key"]
+VAPID_PRIVATE_KEY = vapid["private_key"]
+notification_js = notification_js.replace("<VAPID_PUBLIC_KEY_FROM_PYTHON>", VAPID_PUBLIC_KEY)
+print(f"notification_js: {notification_js}")
+
+# request_id -> subscription
+user_subscriptions = {}
+
 
 # Get the project root (insight-bridge) relative to this file
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # app/server/main -> insight-bridge
@@ -115,7 +132,7 @@ if not ssl_enabled:
         server_port = 80
 
 
-async def answer_question_with_status(question):
+async def answer_question_with_status(question, request_id):
     try:
         # question counter
         global question_count
@@ -189,6 +206,20 @@ async def answer_question_with_status(question):
                 result += "<br><i>This request spawned a new compute instance (Separate container).</i>"
 
             yield result
+
+            sub_str = user_subscriptions.get(request_id)
+            if sub_str:
+                sub = json.loads(sub_str)
+                try:
+                    webpush(
+                        subscription_info=sub,
+                        data=json.dumps(
+                            {"title": "Answer ready", "body": f"Your question '{question}' has been answered."}),
+                        vapid_private_key=VAPID_PRIVATE_KEY,
+                        vapid_claims={"sub": "mailto:you@yourdomain.com"}
+                    )
+                except WebPushException as ex:
+                    logger.warning(f"Failed to send push to {request_id}: {ex}")
     except asyncio.CancelledError:
         return
 
@@ -230,6 +261,7 @@ with gr.Blocks(
                             "Question will be logged for demo and improvement purposes.\n" + \
                             "⚠️ Please do not include any personal information (names, emails, etc.)."
             )
+            user_id_input = gr.Textbox(value="", visible=False, elem_id="user-id-input")
             submit_btn = gr.Button("Submit", elem_id="submit-btn")
             info_box = gr.HTML(info_box_html)
 
@@ -240,13 +272,13 @@ with gr.Blocks(
     # Connect submit button to function
     submit_btn.click(
         answer_question_with_status,
-        inputs=question_input,
+        inputs=[question_input, user_id_input],
         outputs=output_html
     )
     # Allow Ctrl+Enter (or Enter) in the textbox to submit
     question_input.submit(
         answer_question_with_status,
-        inputs=question_input,
+        inputs=[question_input, user_id_input],
         outputs=output_html
     )
 
@@ -311,14 +343,68 @@ def cleanup():
 
 def launch_gradio():
     app.queue(default_concurrency_limit=20)
-    app.launch(
+    api_app, _, _ = app.launch(
         server_name=server_host,
         server_port=server_port,
         ssl_certfile=SSL_CERT_PATH if ssl_enabled else None,
         ssl_keyfile=SSL_KEY_PATH if ssl_enabled else None,
         favicon_path=favicon_file,
         allowed_paths=[str(ASSETS_DIR), str(SERVICE_WORKER_PATH), "/service-worker.js"],
+        prevent_thread_lock=True
     )
+
+    router = APIRouter()
+
+    @router.post("/api/subscribe")
+    async def subscribe(request: Request):
+        data = await request.json()
+        request_id = data.get("request_id")
+        subscription = data.get("subscription")
+        sub_str = json.dumps(subscription, sort_keys=True)
+        user_subscriptions[request_id] = sub_str
+        logger.info(f"New subscription for request_id {request_id}. Total: {len(user_subscriptions)}")
+        return JSONResponse({"status": "subscribed"})
+
+
+    @router.post("/api/notify")
+    async def notify(request: Request):
+        data = await request.json()
+        request_id = data.get("request_id")
+        title = data.get("title", "Notification")
+        body = data.get("body", "")
+
+        sub_str = user_subscriptions.get(request_id)
+        if not sub_str:
+            logger.warning(f"No subscription found for request_id {request_id}")
+            return JSONResponse({"error": "Subscription not found"}, status_code=404)
+
+        subscription_info = json.loads(sub_str)
+
+        try:
+            webpush(
+                subscription_info=subscription_info,
+                data=json.dumps({"title": title, "body": body}),
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={"sub": "mailto:you@yourdomain.com"}
+            )
+            logger.info(f"Notification sent to {request_id}")
+        except WebPushException as ex:
+            logger.warning(f"Failed to send push to {request_id}: {ex}")
+            return JSONResponse({"error": str(ex)}, status_code=500)
+
+        return JSONResponse({"status": "notification sent"})
+
+
+    api_app.include_router(router)
+
+    # Keep the thread alive
+    stop_event = threading.Event()
+
+    try:
+        while not stop_event.is_set():
+            time.sleep(1)
+    finally:
+        logger.info("Shutting down Gradio thread...")
 
 
 def handle_shutdown_signal(signum, frame):
