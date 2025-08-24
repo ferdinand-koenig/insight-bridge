@@ -448,18 +448,12 @@ poetry env use python3.10
 #### Start the docker on the server
 ```bash
 docker run -it --rm \
-  -v /root/config.yaml:/insight-bridge/config.yaml \
-  -v /root/dev_data/dummy_response.html:/insight-bridge/dev_data/dummy_response.html \
   -v /root/logs/:/insight-bridge/logs/ \
-  -v /root/.ssh/llm-hetzner-main-server:/root/.ssh/llm-hetzner-main-server:ro \
-  -v /root/.ssh/llm-hetzner-main-server.pub:/root/.ssh/llm-hetzner-main-server.pub:ro \
   -v /root/cache/:/insight-bridge/cache/ \
+  -v /root/.ssh/llm-hetzner-main-server:/root/.ssh/llm-hetzner-main-server:ro \
   -p 8080:8080 \
   -e HETZNER_API_TOKEN=$HETZNER_API_TOKEN \
-  insight-bridge-server:latest \
-  bash
-  
-  python -m app.hetzner_test.test_hetzner
+  insight-bridge-server:latest
 
 ```
 
@@ -478,3 +472,104 @@ docker run --name llm_app \
  -p 8000:8000 \
  insight-bridge-worker:latest
 ```
+
+#### Checklist for creating a small, ready-to-run snapshot
+* Make docker image
+* (Clean Docker)
+* Enable docker for v6
+    ```bash
+    sudo nano /etc/docker/daemon.json
+    ```
+  add
+    ```json
+    {
+      "ipv6": true,
+      "fixed-cidr-v6": "fd00:dead:beef::/64"
+    }
+    ```
+    ```bash
+    sudo systemctl restart docker
+  ```
+* Download the model into `~\model\`
+    ```bash
+    wget -O Mistral-Nemo-12B-Instruct-2407-Q4_K_M.gguf "https://huggingface.co/starble-dev/Mistral-Nemo-12B-Instruct-2407-GGUF/resolve/main/Mistral-Nemo-12B-Instruct-2407-Q4_K_M.gguf?download=true"
+    ``` 
+* Creat container (see above 'manually start worker')
+* make a service for starting the llm app
+    ```bash
+  sudo nano /etc/systemd/system/llm_app.service
+    ```
+  Paste
+    ```
+  [Unit]
+    Description=LLM App Worker
+    After=network.target docker.service
+    Requires=docker.service
+    
+    [Service]
+    Restart=always
+    ExecStart=/usr/bin/docker start -a llm_app
+    ExecStop=/usr/bin/docker stop -t 10 llm_app
+    
+    [Install]
+    WantedBy=multi-user.target
+  ```
+  
+
+* Start service
+  ```bash
+  sudo systemctl daemon-reload
+  sudo systemctl enable llm_app.service
+  sudo systemctl start llm_app.service
+  ```
+  * Add firewall
+      ```bash
+        # Reset UFW to default
+        sudo ufw reset
+        
+        # Set default policies: deny incoming, allow outgoing
+        sudo ufw default deny incoming
+        sudo ufw default allow outgoing
+        
+        # Allow private network (10.0.0.0/24) from anywhere
+        sudo ufw allow from 10.0.0.0/24
+        
+        # Allow outgoing HTTPS (port 443) for Docker and system
+        sudo ufw allow out to any port 443 proto tcp
+        
+        # Enable UFW
+        sudo ufw enable
+        
+        # Show status and rules for verification
+        sudo ufw status verbose
+    ```
+  
+* Delete repository
+* Delete temp
+```bash
+# Clean APT cache
+sudo apt-get autoclean
+sudo apt-get clean
+
+# Remove unused dependencies
+sudo apt-get autoremove -y
+
+# Clean temporary files
+sudo rm -rf /tmp/*
+sudo rm -rf /var/tmp/*
+
+# Clean user cache
+rm -rf ~/.cache/*
+
+# Clean systemd journal logs older than 7 days
+sudo journalctl --vacuum-time=7d
+
+# Aggressively clean Docker: all unused containers, images, volumes, networks, and builder cache
+docker system prune -a -f --volumes
+```
+* Zeroize
+```bash
+sudo dd if=/dev/zero of=/zerofile bs=1M status=progress || true && sudo rm -f /zerofile && sync
+
+```
+* Snapshot
