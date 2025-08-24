@@ -42,15 +42,15 @@ backend_pool:
   inference_timeout: 600  #300
   warm_backend:
     name: llm-warm-instance
-    ip: 10.0.0.5
+    ip: 10.0.0.3
     ssh_user: root
     ssh_key_path: /root/.ssh/llm-hetzner-main-server
-    server_id: 107226197
+    server_id: 107236272
     server_type: cx32
 
 
 hetzner:
-  snapshot_name: 311684126
+  snapshot_name: 311736535
   ssh_key_name: "llm-hetzner-main-server"
   ssh_key_path: "~/.ssh/llm-hetzner-main-server"
   server_type: ["CX52", "CX42", "CPX41", "CX32", "CPX31"]

@@ -51,7 +51,8 @@ with open("config.yaml", "r") as f:
             "max_backends": config.get("backend_pool", {}).get("max_backends", 5),
             "idle_buffer": config.get("backend_pool", {}).get("idle_buffer", 3300),
             "health_timeout": config.get("backend_pool", {}).get("health_timeout", 120),
-            "inference_timeout": config.get("backend_pool", {}).get("inference_timeout", 300)
+            "inference_timeout": config.get("backend_pool", {}).get("inference_timeout", 300),
+            "warm_backend": config.get("backend_pool", {}).get("warm_backend", None),
         },
         "hetzner": config.get("hetzner", {})
     }
