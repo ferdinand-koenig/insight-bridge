@@ -184,11 +184,13 @@ class HetznerProvisioner(BaseProvisioner):
                                ) as tunnel:
                     local_port = tunnel.local_bind_port
                     resp = await asyncio.to_thread(requests.get, f"http://127.0.0.1:{local_port}/health", timeout=1)
+                    logger.debug(f"Got response {resp}")
                 # if response returns 200, we're good
                 if resp.status_code == 200:
                     logger.info(f"Backend at {ip} is healthy (responded to GET /health)")
                     break
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Health check attempt failed: {e}")
                 pass
 
             if asyncio.get_event_loop().time() - start_time > timeout_health:

@@ -56,7 +56,7 @@ class BaseProvisioner(ABC):
         pass
 
     @abstractmethod
-    async def healthcheck(self, id: Any) -> None:
+    async def health_check(self, id: Any) -> None:
         """
         Checks the health of the instance, i.e., whether the inference server is up and running.
         Raises an TimeoutError if the inference server is not running.
@@ -101,7 +101,7 @@ class Provisioner(Protocol):
         """
         ...
 
-    async def healthcheck(self, id: Any) -> None:
+    async def health_check(self, id: Any) -> None:
         """
         Checks the health of the instance, i.e., whether the inference server is up and running.
         Raises an TimeoutError if the inference server is not running.

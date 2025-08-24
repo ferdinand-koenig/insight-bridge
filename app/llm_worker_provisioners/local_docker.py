@@ -56,12 +56,12 @@ class LocalDockerProvisioner(BaseProvisioner):
         container.reload()  # refresh container.attrs
         host_port = int(container.attrs['NetworkSettings']['Ports']['8000/tcp'][0]['HostPort'])
 
-        await self.healthcheck(host_port)
+        await self.health_check(host_port)
 
         return {"container": container, "host_port": host_port}
 
 
-    async def healthcheck(self, host_port):
+    async def health_check(self, host_port):
         # Wait until the container is ready by polling /health
         url = f"http://127.0.0.1:{host_port}/health"
         timeout = self.health_timeout  # seconds
