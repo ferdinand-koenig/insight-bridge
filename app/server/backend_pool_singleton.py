@@ -118,13 +118,14 @@ class BackendPool:
         """Terminate all backends sequentially and log each termination."""
         logger.info("Shutting down all backends…")
         for bw in list(self.backends):  # use list() to avoid mutation issues
-            try:
-                await self.provisioner.terminate_backend(bw.instance)
-                logger.info(f"Backend {bw.instance} terminated successfully")
-            except Exception as e:
-                logger.error(f"Error terminating backend {bw.instance}: {e}")
-            finally:
-                self.backends.remove(bw)
+            if not bw.is_small:
+                try:
+                    await self.provisioner.terminate_backend(bw.instance)
+                    logger.info(f"Backend {bw.instance} terminated successfully")
+                except Exception as e:
+                    logger.error(f"Error terminating backend {bw.instance}: {e}")
+                finally:
+                    self.backends.remove(bw)
         logger.info("All backends terminated")
 
     def __del__(self):
