@@ -167,13 +167,14 @@ class BackendPool:
                 if self.backends:
                     raise AssertionError("Tried to initialize but seems already initialized. "
                                          "There are already backends.")
-                await self.provisioner.healthcheck(
-                    warm_backend.instance.get("ip",
-                                              warm_backend.instance.get("port",
-                                                                        None
-                                                                        )
-                                              )
+                logger.debug(f"Checking backend {warm_backend}")
+                await self.provisioner.health_check(
+                    warm_backend.get(
+                        "ip",
+                        warm_backend.get("port", None)
+                    )
                 )
+                logger.debug(f"Health check succeeded for {warm_backend}")
                 self.backends.append(BackendInstanceWrapper(warm_backend, size="small"))
 
 
@@ -487,7 +488,7 @@ class SingletonBackendPool:
                             snapshot_name=hetzner_cfg['snapshot_name'],
                             ssh_key_name=hetzner_cfg['ssh_key_name'],
                             server_types=hetzner_cfg.get('server_types', ["CX52", "CX42", "CPX41", "CX32", "CPX31"]),
-                            ssh_private_key_path=hetzner_cfg['ssh_key_path'],
+                            ssh_private_key_path=os.path.expanduser(hetzner_cfg['ssh_key_path']),
                             private_network_name=hetzner_cfg['private_network_name'],
                         )
                     else:
