@@ -47,7 +47,7 @@ they should not be relied upon for critical decisions.
 
 def spinner_html(message: str) -> str:
     return f"""
-    <div style="display: flex; align-items: center; gap: 8px;">
+    <div id="insight-spinner" style="display: flex; align-items: center; gap: 8px;">
         <div style="
             flex: none; 
             border: 4px solid #f3f3f3;
@@ -66,3 +66,75 @@ def spinner_html(message: str) -> str:
     }}
     </style>
     """
+
+
+notification_js = r"""
+    function () {
+      // Find the correct root (gradio may use shadow DOM)
+      const root = (window.gradioApp && window.gradioApp()) 
+                || (document.querySelector("gradio-app")?.shadowRoot) 
+                || document;
+    
+      // Utilities
+      const $ = (sel, r = root) => r.querySelector(sel);
+      const onReady = (sel, cb, timeoutMs = 10000) => {
+        const start = Date.now();
+        const tick = () => {
+          const el = $(sel);
+          if (el) return cb(el);
+          if (Date.now() - start > timeoutMs) return; // give up
+          requestAnimationFrame(tick);
+        };
+        tick();
+      };
+      
+    
+      // Ask politely once on first submit click
+      onReady("#submit-btn", (btn) => {
+        btn.addEventListener("click", () => {
+          if (!("Notification" in window)) return;
+          if (Notification.permission === "default") {
+            const msg = "We value your time. Since the demo uses economic resources, expected request time is ~5 minutes. We would like to notify you when your result is ready.\n\nClick OK to enable notifications.";
+            if (confirm(msg)) Notification.requestPermission();
+          }
+        }, { once: true });
+      });
+    
+      // Observe the answer area and notify when spinner disappears
+      onReady("#answer-html", (answer) => {
+        let awaitingAnswer = false;
+    
+        const notifyReady = () => {
+          if ("Notification" in window && Notification.permission === "granted") {
+            new Notification("InsightBridge", {
+              body: "Your answer is ready!",
+              icon: "/favicon.ico"
+            });
+          }
+        };
+    
+        const hasSpinner = () => !!answer.querySelector("#insight-spinner");
+        const hasContent = () => {
+          // any non-empty text or any element that isn't the spinner
+          const text = answer.textContent?.trim() || "";
+          return text.length > 0 || answer.children.length > 0;
+        };
+    
+        const obs = new MutationObserver(() => {
+          // When spinner appears, mark awaiting
+          if (hasSpinner()) {
+            awaitingAnswer = true;
+            return;
+          }
+          // When spinner is gone AND we were awaiting AND there is content => notify once
+          if (awaitingAnswer && hasContent()) {
+            awaitingAnswer = false;
+            notifyReady();
+          }
+        });
+    
+        // Observe content changes inside the HTML output container
+        obs.observe(answer, { childList: true, subtree: true, characterData: true });
+      });
+    }
+"""

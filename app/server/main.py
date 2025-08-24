@@ -9,7 +9,7 @@ from pathlib import Path
 import gradio as gr
 import yaml
 from .cache_utils import cache_with_hit_delay
-from .html_resources import spinner_html, info_box_html
+from .html_resources import spinner_html, info_box_html, notification_js
 from .backend_pool_singleton import SingletonBackendPool
 
 # Get the project root (insight-bridge) relative to this file
@@ -116,77 +116,81 @@ if not ssl_enabled:
 
 
 async def answer_question_with_status(question):
-    # question counter
-    global question_count
-    with counter_lock:
-        question_count += 1
-    logger.info(f"Total questions asked: {question_count}")
+    try:
+        # question counter
+        global question_count
+        with counter_lock:
+            question_count += 1
+        logger.info(f"Total questions asked: {question_count}")
 
-    if gradio_server_config.get("use_mock_answer", False):
-        logger.debug("Redirecting to mock answer")
-        yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
-        yield await answer_question_cached(question)
-    else:
-        look_ahead_result = await answer_question_cached.look_ahead(question)
-        backend_pool = await SingletonBackendPool.get_instance(pool_config)
-        has_ready = backend_pool.has_ready_instance()
-        capacity = backend_pool.get_capacity()
+        if gradio_server_config.get("use_mock_answer", False):
+            logger.debug("Redirecting to mock answer")
+            yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
+            yield await answer_question_cached(question)
+        else:
+            look_ahead_result = await answer_question_cached.look_ahead(question)
+            backend_pool = await SingletonBackendPool.get_instance(pool_config)
+            has_ready = backend_pool.has_ready_instance()
+            capacity = backend_pool.get_capacity()
 
-        logger.debug(
-            f"look_ahead result: {look_ahead_result}, has ready instance: {has_ready}"
-        )
-        # Note: There’s a potential race condition here. In the worst case, the user might see a "1–2 minutes" wait
-        # message instead of the more accurate ~10 minutes if a new worker is being launched.
-        # This does not affect functionality, only the displayed waiting time.
+            logger.debug(
+                f"look_ahead result: {look_ahead_result}, has ready instance: {has_ready}"
+            )
+            # Note: There’s a potential race condition here. In the worst case, the user might see a "1–2 minutes" wait
+            # message instead of the more accurate ~10 minutes if a new worker is being launched.
+            # This does not affect functionality, only the displayed waiting time.
 
-        if not (look_ahead_result == "hit" or has_ready):
-            # if not cached result and has no ready instance
-            # yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
-            if capacity["current_capacity"] > 0:
-                yield spinner_html(
-                    "Thinking… A new worker is booting (up to 15 min) 🚀. "
-                    "If that feels long, try one of the suggested questions. "
-                    "Idle workers aren’t kept running—this saves money 💰 and is sustainable 🌱. Thanks for your patience!"
-                    "<br><br>Did you know? Workers get a server that is more powerful to serve the request fast. "
-                    "When it is economically no more justified to keep it running based on startup and processing time, "
-                    "it gets shut down, but restarted on demand."
-                )
+            if not (look_ahead_result == "hit" or has_ready):
+                # if not cached result and has no ready instance
+                # yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
+                if capacity["current_capacity"] > 0:
+                    yield spinner_html(
+                        "Thinking… A new worker is booting (up to 15 min) 🚀. "
+                        "If that feels long, try one of the suggested questions. "
+                        "Idle workers aren’t kept running—this saves money 💰 and is sustainable 🌱. Thanks for your patience!"
+                        "<br><br>Did you know? Workers get a server that is more powerful to serve the request fast. "
+                        "When it is economically no more justified to keep it running based on startup and processing time, "
+                        "it gets shut down, but restarted on demand."
+                    )
+                else:
+                    yield spinner_html(
+                        f"We are currently experiencing high load. All {capacity['max_size']} workers are spawned and busy."
+                        f" Your request is queued at position {capacity['queued_requests']} "
+                        f"and will be processed in a couple of minutes. "
+                        f"(Please note that the position cannot be updated). "
+                        f"<br><br>Did you know? Workers get a server that is more powerful to serve the request fast. "
+                        f"When it is economically no more justified to keep it running based on startup and processing time, "
+                        f"it gets shut down, but restarted on demand. "
+                        f"<br><br> To not overprovision, a limit of {capacity['max_size']} workers is set."
+                        f"<br><br> Tight on time? Try one of the suggested questions or come later again."
+                    )
+
             else:
-                yield spinner_html(
-                    f"We are currently experiencing high load. All {capacity['max_size']} workers are spawned and busy."
-                    f" Your request is queued at position {capacity['queued_requests']} "
-                    f"and will be processed in a couple of minutes. "
-                    f"(Please note that the position cannot be updated). "
-                    f"<br><br>Did you know? Workers get a server that is more powerful to serve the request fast. "
-                    f"When it is economically no more justified to keep it running based on startup and processing time, "
-                    f"it gets shut down, but restarted on demand. "
-                    f"<br><br> To not overprovision, a limit of {capacity['max_size']} workers is set."
-                    f"<br><br> Tight on time? Try one of the suggested questions or come later again."
-                )
+                yield spinner_html("Thinking… This usually takes ~2-3 minutes as no GPU resources are used.")
 
-        else:
-            yield spinner_html("Thinking… This usually takes ~2-3 minutes as no GPU resources are used.")
+            loop = asyncio.get_event_loop()
+            start_time = loop.time()
 
-        loop = asyncio.get_event_loop()
-        start_time = loop.time()
+            result, meta = await answer_question_cached(question)
 
-        result, meta = await answer_question_cached(question)
+            logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
+            if type(result) is asyncio.Future:  # TODO fix whatever is happening here
+                result = await result
 
-        logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
-        if type(result) is asyncio.Future:  # TODO fix whatever is happening here
-            result = await result
+            elapsed = loop.time() - start_time
 
-        elapsed = loop.time() - start_time
+            logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
 
-        logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
+            if meta["from_cache"]:
+                result += (f"<br><i>This response was retrieved from the custom cache with "
+                           f"{gradio_server_config.get('hit_delay', 20)}s delay.</i>")
+            else:
+                logger.info(f"Time to respond to question '{question}': {elapsed:.1f} seconds")
+                result += "<br><i>This request spawned a new compute instance (Separate container).</i>"
 
-        if meta["from_cache"]:
-            result += (f"<br><i>This response was retrieved from the custom cache with "
-                       f"{gradio_server_config.get('hit_delay', 20)}s delay.</i>")
-        else:
-            logger.info(f"Time to respond to question '{question}': {elapsed:.1f} seconds")
-            result += "<br><i>This request spawned a new compute instance (Separate container).</i>"
-        yield result
+            yield result
+    except asyncio.CancelledError:
+        return
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 # goes from app/server/main.py → /insight-bridge
@@ -195,6 +199,7 @@ favicon_file = os.path.join(BASE_DIR, "assets", "favicon.ico")
 # UI definition:
 with gr.Blocks(
     title="InsightBridge: Semantic Q&A with LangChain & HuggingFace",
+    js=notification_js
 ) as app:
     # GET method counter
     with counter_lock:
@@ -207,6 +212,7 @@ with gr.Blocks(
         "Enter a question related to your document corpus (Preprints of cs.CL June '25). "
         "Powered by a FAISS index and HuggingFace LLM."
     )
+    gr.Button("🔔 Enable Notifications", elem_id="notif-btn")
     with gr.Row():
         # LEFT COLUMN: input + submit + info box
         with gr.Column(scale=1):
@@ -216,12 +222,12 @@ with gr.Blocks(
                             "Question will be logged for demo and improvement purposes.\n" + \
                             "⚠️ Please do not include any personal information (names, emails, etc.)."
             )
-            submit_btn = gr.Button("Submit")
+            submit_btn = gr.Button("Submit", elem_id="submit-btn")
             info_box = gr.HTML(info_box_html)
 
         # RIGHT COLUMN: output box spanning right half
         with gr.Column(scale=1):
-            output_html = gr.HTML()
+            output_html = gr.HTML(elem_id="answer-html")
 
     # Connect submit button to function
     submit_btn.click(
@@ -256,6 +262,23 @@ def cleanup():
         # ---- shut down backends ----
         backend_pool = loop.run_until_complete(SingletonBackendPool.get_instance(pool_config))
         loop.run_until_complete(backend_pool.shutdown_all_backends())
+
+        # ---- stop Gradio queue ----
+        try:
+            app.queue().close()  # Stop accepting new tasks
+        except Exception:
+            pass
+
+        # ---- cancel pending asyncio tasks safely ----
+        pending = [t for t in asyncio.all_tasks(loop=loop) if not t.done()]
+        if pending:
+            logger.info(f"Cancelling {len(pending)} pending tasks...")
+            for task in pending:
+                task.cancel()
+
+            # gather with return_exceptions=True to prevent unhandled exceptions
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
         loop.close()
 
         logger.info("Cleanup complete")
