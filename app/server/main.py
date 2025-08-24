@@ -9,7 +9,7 @@ from pathlib import Path
 import gradio as gr
 import yaml
 from .cache_utils import cache_with_hit_delay
-from .html_resources import spinner_html, info_box_html, notification_js
+from .webpage_resources import spinner_html, info_box_html, notification_js
 from .backend_pool_singleton import SingletonBackendPool
 
 # Get the project root (insight-bridge) relative to this file
@@ -192,9 +192,17 @@ async def answer_question_with_status(question):
     except asyncio.CancelledError:
         return
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-# goes from app/server/main.py → /insight-bridge
-favicon_file = os.path.join(BASE_DIR, "assets", "favicon.ico")
+BASE_DIR = Path(__file__).resolve().parent.parent.parent  # /insight-bridge
+ASSETS_DIR = BASE_DIR / "assets"
+
+logger.info(f"ASSETS_DIR: {ASSETS_DIR}")
+SERVICE_WORKER_PATH = (ASSETS_DIR / "service-worker.js").resolve()
+
+
+gr.set_static_paths([str(ASSETS_DIR)])  # Gradio expects a list of paths
+
+# Favicon
+favicon_file = ASSETS_DIR / "favicon.ico"
 
 # UI definition:
 with gr.Blocks(
@@ -308,7 +316,8 @@ def launch_gradio():
         server_port=server_port,
         ssl_certfile=SSL_CERT_PATH if ssl_enabled else None,
         ssl_keyfile=SSL_KEY_PATH if ssl_enabled else None,
-        favicon_path=favicon_file
+        favicon_path=favicon_file,
+        allowed_paths=[str(ASSETS_DIR), str(SERVICE_WORKER_PATH), "/service-worker.js"],
     )
 
 

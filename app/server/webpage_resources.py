@@ -69,72 +69,83 @@ def spinner_html(message: str) -> str:
 
 
 notification_js = r"""
-    function () {
-      // Find the correct root (gradio may use shadow DOM)
-      const root = (window.gradioApp && window.gradioApp()) 
-                || (document.querySelector("gradio-app")?.shadowRoot) 
-                || document;
-    
-      // Utilities
-      const $ = (sel, r = root) => r.querySelector(sel);
-      const onReady = (sel, cb, timeoutMs = 10000) => {
+function () {
+    const root = (window.gradioApp && window.gradioApp()) 
+              || (document.querySelector("gradio-app")?.shadowRoot) 
+              || document;
+
+    const $ = (sel, r=root) => r.querySelector(sel);
+    const onReady = (sel, cb, timeoutMs=10000) => {
         const start = Date.now();
         const tick = () => {
-          const el = $(sel);
-          if (el) return cb(el);
-          if (Date.now() - start > timeoutMs) return; // give up
-          requestAnimationFrame(tick);
+            const el = $(sel);
+            if(el) return cb(el);
+            if(Date.now() - start > timeoutMs) return;
+            requestAnimationFrame(tick);
         };
         tick();
-      };
-      
-    
-      // Ask politely once on first submit click
-      onReady("#submit-btn", (btn) => {
+    };
+
+    // Register service worker with explicit scope
+    navigator.serviceWorker.register('/service-worker.js')
+    .then(reg => console.log('Service Worker registered'))
+    .catch(err => console.error('SW registration failed', err));
+
+    // Ensure we always have an active controller reference
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        window.sw = navigator.serviceWorker.controller;
+        console.log('Service Worker controller changed and ready');
+    });
+
+    // Ask politely on first submit click
+    onReady("#submit-btn", (btn) => {
         btn.addEventListener("click", () => {
-          if (!("Notification" in window)) return;
-          if (Notification.permission === "default") {
-            const msg = "We value your time. Since the demo uses economic resources, expected request time is ~5 minutes. We would like to notify you when your result is ready.\n\nClick OK to enable notifications.";
-            if (confirm(msg)) Notification.requestPermission();
-          }
+            if (!("Notification" in window)) return;
+            if (Notification.permission === "default") {
+                const msg = "We value your time. Since the demo uses economic resources, expected request time is ~5 minutes. We would like to notify you when your result is ready.\n\nClick OK to enable notifications.";
+                if (confirm(msg)) Notification.requestPermission();
+            }
         }, { once: true });
-      });
-    
-      // Observe the answer area and notify when spinner disappears
-      onReady("#answer-html", (answer) => {
+    });
+
+    // Observe answer container and send notification when spinner disappears
+    onReady("#answer-html", (answer) => {
         let awaitingAnswer = false;
-    
-        const notifyReady = () => {
-          if ("Notification" in window && Notification.permission === "granted") {
-            new Notification("InsightBridge", {
-              body: "Your answer is ready!",
-              icon: "/favicon.ico"
-            });
-          }
-        };
-    
+
         const hasSpinner = () => !!answer.querySelector("#insight-spinner");
         const hasContent = () => {
-          // any non-empty text or any element that isn't the spinner
-          const text = answer.textContent?.trim() || "";
-          return text.length > 0 || answer.children.length > 0;
+            const nonSpinner = Array.from(answer.children).filter(c => c.id !== "insight-spinner");
+            return nonSpinner.length > 0 || (answer.textContent?.trim().length > 0 && !hasSpinner());
         };
-    
+
+        const notifyReady = () => {
+            const sw = window.sw || navigator.serviceWorker.controller;
+            if (Notification.permission === "granted" && sw) {
+                sw.postMessage({
+                    type: "show-notification",
+                    title: "InsightBridge",
+                    body: "Your answer is ready!",
+                    icon: "/favicon.ico"
+                });
+            }
+        };
+
         const obs = new MutationObserver(() => {
-          // When spinner appears, mark awaiting
-          if (hasSpinner()) {
-            awaitingAnswer = true;
-            return;
-          }
-          // When spinner is gone AND we were awaiting AND there is content => notify once
-          if (awaitingAnswer && hasContent()) {
-            awaitingAnswer = false;
-            notifyReady();
-          }
+            if (hasSpinner()) {
+                awaitingAnswer = true;
+                return;
+            }
+            if (awaitingAnswer && hasContent()) {
+                awaitingAnswer = false;
+                notifyReady();
+            }
         });
-    
-        // Observe content changes inside the HTML output container
+
         obs.observe(answer, { childList: true, subtree: true, characterData: true });
       });
     }
 """
+
+
+
+
