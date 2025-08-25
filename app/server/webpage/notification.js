@@ -1,5 +1,5 @@
 // notification.js - NOTE: this file must define a function body (no IIFE)
-function notficication() {
+function notification() {
     const root = (window.gradioApp && window.gradioApp()) || document.querySelector("gradio-app")?.shadowRoot || document;
     const $ = (sel, r = root) => r.querySelector(sel);
 
@@ -64,6 +64,18 @@ function notficication() {
     }
 
     // -------------------------------
+    // Delete any existing push subscription
+    async function deletePreviousSubscription() {
+        if (!('serviceWorker' in navigator)) return;
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+            await subscription.unsubscribe();
+            console.log("Deleted previous push subscription");
+        }
+    }
+
+    // -------------------------------
     // Ensure push subscription once SW is ready
     async function ensurePushSubscription() {
         const user_id = await fetchUserId();
@@ -106,22 +118,31 @@ function notficication() {
 
     // After you have fetched user_id from server and saved it in localStorage
     async function registerQuestion(question) {
-    const user_id = localStorage.getItem("gradio_user_id");
-    if (!user_id || !question || question.trim().length === 0) return;
+        const user_id = localStorage.getItem("gradio_user_id");
+        if (!user_id || !question || question.trim().length === 0) return;
 
-    const hashHex = fnv1aHash(question.trim()); // Use FNV-1a 32-bit
+        const hashHex = fnv1aHash(question.trim()); // Use FNV-1a 32-bit
 
-    try {
-        await fetch("/api/register", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question_hash: hashHex, user_id })
-        });
-        console.log(`Registered user_id ${user_id} for question hash ${hashHex}`);
-    } catch (err) {
-        console.error("Failed to register question:", err);
+        try {
+            await fetch("/api/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question_hash: hashHex, user_id })
+            });
+            console.log(`Registered user_id ${user_id} for question hash ${hashHex}`);
+        } catch (err) {
+            console.error("Failed to register question:", err);
+        }
     }
-}
+
+        // -------------------------------
+    // Enable notifications button behavior
+    async function enableNotificationsButtonHandler() {
+        await deletePreviousSubscription();        // Step 1: delete old subscription
+        await ensurePushSubscription();            // Step 2: request and create new subscription
+        const questionInput = $("textarea[placeholder*='Ask a question']");
+        if (questionInput) await registerQuestion(questionInput.value); // Step 3: register current question
+    }
 
     // Add event listeners
     onReady("#submit-btn", (submitBtn) => {
@@ -143,4 +164,7 @@ function notficication() {
         });
     });
 
+    onReady("#notif-btn", btn => {
+        btn.addEventListener("click", enableNotificationsButtonHandler);
+    });
 }
