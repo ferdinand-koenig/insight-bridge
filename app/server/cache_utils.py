@@ -71,6 +71,8 @@ def cache_with_hit_delay(maxsize=128, hit_delay=0, return_with_meta=False, logge
     """
     def decorator(func):
         cache = OrderedDict()           # stores cached results
+        hit_calls = 0
+        total_calls = 0
 
         if asyncio.iscoroutinefunction(func):
             lock = asyncio.Lock()
@@ -85,16 +87,19 @@ def cache_with_hit_delay(maxsize=128, hit_delay=0, return_with_meta=False, logge
 
             @functools.wraps(func)
             async def wrapper(*args: P.args, **kwargs: P.kwargs) -> Union[R, Tuple[R, Dict[str, bool]]]:
-                # nonlocal _last_hit
+                nonlocal hit_calls, total_calls  #, _last_hit
                 key = (args, frozenset(kwargs.items()))
 
                 async with lock:
+                    total_calls += 1
                     if key in cache:  # if hit
+                        hit_calls += 1
                         fut = cache[key]
                         cache.move_to_end(key)
                         # _last_hit = True
                         from_cache = True
-                        _log(logger, f"Cache hit - {func.__name__}({args}, {kwargs})")
+                        _log(logger, f"Cache hit - {func.__name__}({args}, {kwargs}) | "
+                             f"Hitrate: {hit_calls}/{total_calls} ({hit_calls/total_calls:.2%})")
                         if hit_delay > 0:
                             await asyncio.sleep(hit_delay)
                     else:
@@ -108,7 +113,8 @@ def cache_with_hit_delay(maxsize=128, hit_delay=0, return_with_meta=False, logge
                                 break
                         # _last_hit = False
                         from_cache = False
-                        _log(logger, f"Cache miss - {func.__name__}({args}, {kwargs})")
+                        _log(logger, f"Cache miss - {func.__name__}({args}, {kwargs}) | "
+                             f"Hitrate: {hit_calls}/{total_calls} ({hit_calls/total_calls:.2%})")
                         # fire-and-forget computation
                         asyncio.create_task(_compute_and_set(fut, *args, **kwargs))
                 fut = await fut
@@ -142,23 +148,32 @@ def cache_with_hit_delay(maxsize=128, hit_delay=0, return_with_meta=False, logge
 
             def get_serializable_cache():
                 """Return dict with only resolved results (drop pending futures)."""
+                _log(logger, f"Cache contains {str(cache)[:100]}"
+                             f"{'...' if len(str(cache)) > 100 else ''}", "debug")
                 serializable = {}
                 for k, v in cache.items():
                     if asyncio.isfuture(v) and v.done() and not v.cancelled() and v.exception() is None:
                         serializable[k] = v.result()
+                _log(logger, f"Return to serialize {str(serializable)[:100]}"
+                             f"{'...' if len(str(serializable)) > 100 else ''}", "debug")
                 return serializable
 
             wrapper.get_serializable_cache = get_serializable_cache
 
             def load_serializable_cache(data: dict):
-                """Restore previously dumped cache results into the current cache."""
-                with (yield from lock):  # use async lock
-                    for k, v in data.items():
-                        fut = asyncio.get_event_loop().create_future()
-                        fut.set_result(v)
-                        cache[k] = fut
+                """Restore previously dumped cache results into the current cache synchronously."""
+                for k, v in data.items():
+                    # resolved Future, no loop needed
+                    fut = asyncio.Future()
+                    fut.set_result(v)
+                    cache[k] = fut
+                _log(logger, f"Cache contains {str(cache)[:100]}"
+                             f"{'...' if len(str(cache)) > 100 else ''}", "debug")
+
 
             wrapper.load_serializable_cache = load_serializable_cache
+
+            wrapper.get_cache_hit_rate = lambda: hit_calls / total_calls if total_calls else 0.0
 
             return wrapper
 
@@ -167,12 +182,15 @@ def cache_with_hit_delay(maxsize=128, hit_delay=0, return_with_meta=False, logge
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
+                nonlocal hit_calls, total_calls
                 key = (args, frozenset(kwargs.items()))
                 hit = False
 
                 # Check cache with thread safety
                 with lock:
+                    total_calls += 1
                     if key in cache:
+                        hit_calls += 1
                         cache.move_to_end(key)  # mark as most recently used
                         value = cache[key]
                         hit = True
@@ -236,6 +254,8 @@ def cache_with_hit_delay(maxsize=128, hit_delay=0, return_with_meta=False, logge
                     cache.update(data)
 
             wrapper.load_serializable_cache = load_serializable_cache
+
+            wrapper.get_cache_hit_rate = lambda: hit_calls / total_calls if total_calls else 0.0
 
             return wrapper
 
