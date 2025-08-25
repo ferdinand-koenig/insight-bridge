@@ -21,7 +21,31 @@ from .cache_utils import cache_with_hit_delay
 from .webpage.webpage_resources import spinner_html, info_box_html, notification_js
 from .backend_pool_singleton import SingletonBackendPool
 
-vapid = vapid_generator.generate_vapid_keypair()
+# Get the project root (insight-bridge) relative to this file
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # app/server/main -> insight-bridge
+CACHE_DIR = PROJECT_ROOT / "cache"
+
+CACHE_FILE = CACHE_DIR / "cache.pkl"
+logger.info(f"Cache file: {CACHE_FILE}")
+
+# Counter file path
+COUNTER_FILE = CACHE_DIR / "counters.pkl"
+logger.info(f"Counter file: {COUNTER_FILE}")
+
+VAPID_FILE = CACHE_DIR / "vapid_keys.json"
+
+if VAPID_FILE.exists():
+    # Load existing keys
+    with open(VAPID_FILE, "r") as f:
+        vapid = json.load(f)
+    logger.info(f"Loaded Vapid key pair for notifications from file: {VAPID_FILE}")
+else:
+    # Generate new keys and save
+    vapid = vapid_generator.generate_vapid_keypair()
+    with open(VAPID_FILE, "w") as f:
+        json.dump(vapid, f)
+    logger.info(f"Generated Vapid key pair for notifications and saved to file: {VAPID_FILE}")
+
 VAPID_PUBLIC_KEY = vapid["public_key"]
 VAPID_PRIVATE_KEY = vapid["private_key"]
 notification_js = notification_js.replace("<VAPID_PUBLIC_KEY_FROM_PYTHON>", VAPID_PUBLIC_KEY)
@@ -68,17 +92,6 @@ async def pop_user_ids_for_question(question: str) -> list[str]:
     key = fnv1a_hash(question)
     async with registry_lock:
         return question_registry.pop(key, [])
-
-# Get the project root (insight-bridge) relative to this file
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # app/server/main -> insight-bridge
-CACHE_DIR = PROJECT_ROOT / "cache"
-
-CACHE_FILE = CACHE_DIR / "cache.pkl"
-logger.info(f"Cache file: {CACHE_FILE}")
-
-# Counter file path
-COUNTER_FILE = CACHE_DIR / "counters.pkl"
-logger.info(f"Counter file: {COUNTER_FILE}")
 
 # Initialize counters
 counter_lock = threading.Lock()
