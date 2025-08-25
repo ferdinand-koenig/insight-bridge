@@ -207,16 +207,13 @@ async def notify_users(question):
                 logger.warning(f"Failed to send push to {user_id}: {ex}")
 
 
-async def answer_question_with_status(question, request_id=None):
+async def answer_question_with_status(question):
     try:
         # question counter
         global question_count
         with counter_lock:
             question_count += 1
         logger.info(f"Total questions asked: {question_count}")
-
-        if request_id is None:
-            logger.warning("No request_id provided!")
 
         if gradio_server_config.get("use_mock_answer", False):
             logger.debug("Redirecting to mock answer")
