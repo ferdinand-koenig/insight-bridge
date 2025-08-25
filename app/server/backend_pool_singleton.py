@@ -329,15 +329,7 @@ class BackendPool:
             if len(self.backends) < self.max_size:
                 if await self.should_spawn_new_backend():
                     logger.info("Economically justified: Spawning new backend")
-                    start = asyncio.get_event_loop().time()
-                    instance = await self.provisioner.spawn_backend()
-                    startup_duration = asyncio.get_event_loop().time() - start
-                    logger.info(f"New backend ready. Time passed: {startup_duration:.1f} seconds")
-                    bw = BackendInstanceWrapper(instance)
-                    bw.busy = True
-                    self.backends.append(bw)
-                    await self.record_request_time(startup_sec=startup_duration, use_lock=False)
-                    return bw
+                    return await self.spawn_and_return_new_backend_instance_wrapper(use_lock=False)
                 else:
                     logger.info("Spawn of backend not economically justified. Putting into queue.")
             else:
@@ -348,6 +340,41 @@ class BackendPool:
         future: asyncio.Future = asyncio.get_event_loop().create_future()
         await self.queue.put(future)
         return await future
+
+    async def spawn_and_return_new_backend_instance_wrapper(self, use_lock=True) -> BackendInstanceWrapper:
+        async def _action():
+            if len(self.backends) >= self.max_size:
+                logger.warning(
+                    f"Cannot spawn new backend: pool max_size={self.max_size} reached."
+                )
+                return None
+            start = asyncio.get_event_loop().time()
+            instance = await self.provisioner.spawn_backend()
+            startup_duration = asyncio.get_event_loop().time() - start
+            logger.info(f"New backend ready. Time passed: {startup_duration:.1f} seconds")
+            bw = BackendInstanceWrapper(instance)
+            bw.busy = True
+            self.backends.append(bw)
+            await self.record_request_time(startup_sec=startup_duration, use_lock=False)
+            return bw
+
+        if use_lock:
+            async with self.lock:
+                return await _action()
+        else:
+            return await _action()
+
+    async def spawn_multiple(self, n:int, use_lock=True):
+        available_slots = self.max_size - len(self.backends)
+        if n > available_slots:
+            logger.warning(
+                f"Requested {n} instances, but only {available_slots} slots available. Spawning {available_slots} instead.")
+        n = min(n, available_slots)
+        if n <= 0:
+            return []
+
+        tasks = [self.spawn_and_return_new_backend_instance_wrapper(use_lock=use_lock) for _ in range(n)]
+        return await asyncio.gather(*tasks)
 
     async def release_backend(self, bw: BackendInstanceWrapper) -> None:
         """

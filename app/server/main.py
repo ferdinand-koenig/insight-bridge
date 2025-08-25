@@ -10,8 +10,9 @@ import signal
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Security, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.security.api_key import APIKeyHeader
 import gradio as gr
 import yaml
 from pywebpush import webpush, WebPushException
@@ -24,6 +25,16 @@ vapid = vapid_generator.generate_vapid_keypair()
 VAPID_PUBLIC_KEY = vapid["public_key"]
 VAPID_PRIVATE_KEY = vapid["private_key"]
 notification_js = notification_js.replace("<VAPID_PUBLIC_KEY_FROM_PYTHON>", VAPID_PUBLIC_KEY)
+
+API_KEY_NAME = "LLM_IB_VM_SPINUP_KEY"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+
+AUTHORIZED_KEYS = {os.environ.get("LLM_IB_VM_SPINUP_KEY")}
+
+def verify_api_key(api_key: str):
+    if api_key not in AUTHORIZED_KEYS:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    return api_key
 
 # user_id -> subscription
 user_subscriptions = {}
@@ -271,7 +282,7 @@ async def answer_question_with_status(question, request_id=None):
 BASE_DIR = Path(__file__).resolve().parent.parent.parent  # /insight-bridge
 PWA_DIR = BASE_DIR / "pwa"
 
-logger.info(f"ASSETS_DIR: {PWA_DIR}")
+logger.debug(f"PWA_DIR: {PWA_DIR}")
 SERVICE_WORKER_PATH = (PWA_DIR / "service-worker.js").resolve()
 DESKTOP_ICONS_PATH = PWA_DIR / "desktop_icons"
 
@@ -479,6 +490,15 @@ def launch_gradio():
                 media_type="application/javascript"
             )
         return {"error": "Service worker not found"}, 404
+
+    @router.post("/ctrl/add_auxiliary_instance")
+    async def add_auxiliary_instance(amount: int = 1,
+                                     api_key: str = Security(api_key_header)):
+        verify_api_key(api_key)
+        backend_pool = await SingletonBackendPool.get_instance(pool_config)
+        spawned_instances = await backend_pool.spawn_multiple(amount, use_lock=True)
+        actual_amount = len(spawned_instances)
+        return {"status": "success", "requested": amount, "spawned": actual_amount}
 
     api_app.include_router(router)
 
