@@ -17,6 +17,8 @@ info_box_html = f"""
     <li>What is L3Cube-MahaEmotions?</li>
     <li>What is KG-Traces and when are they used? Explain for beginners with no knowledge of IT</li>
     <li>What are the dangers and risks of LLMs?</li>
+    <li>Qu’est-ce qu’un grand modèle de langage ? Réponds en français</li>
+    <li>Schreibe ein Gedicht über ein LLM auf deutsch</li>
 </ul>
 <br>
 

@@ -14,17 +14,26 @@ function () {
         tick();
     };
 
+    function fnv1aHash(str) {
+        let hash = 0x811c9dc5;
+        for (let i = 0; i < str.length; i++) {
+            hash ^= str.charCodeAt(i);
+            hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+            hash = hash >>> 0; // ensure 32-bit unsigned
+        }
+        return hash.toString(16).padStart(8, '0'); // zero-padded hex
+    }
+
     function urlBase64ToUint8Array(base64String) {
         const padding = '='.repeat((4 - base64String.length % 4) % 4);
         const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
         const rawData = atob(base64);
         const outputArray = new Uint8Array(rawData.length);
-        for (let i = 0; i < rawData.length; ++i) {
-            outputArray[i] = rawData.charCodeAt(i);
-        }
+        for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
         return outputArray;
     }
 
+    // Register the service worker
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/service-worker.js')
             .then(reg => console.log('Service Worker registered'))
@@ -34,95 +43,104 @@ function () {
             window.sw = navigator.serviceWorker.controller;
             console.log('Service Worker controller changed and ready');
         });
-    } else {
-        console.warn('Service workers are not supported in this browser.');
     }
 
-    try {
-        if (!localStorage.getItem("gradio_user_id")) {
-            if (crypto && typeof crypto.randomUUID === 'function') {
-                localStorage.setItem("gradio_user_id", crypto.randomUUID());
-            } else {
-                const rnd = () => ((1 + Math.random()) * 0x10000 | 0).toString(16).substring(1);
-                localStorage.setItem("gradio_user_id", `${rnd()}${rnd()}-${rnd()}-${rnd()}-${rnd()}-${rnd()}${rnd()}${rnd()}`);
+    // -------------------------------
+    // FETCH persistent user_id from server
+    async function fetchUserId() {
+        let user_id = localStorage.getItem("gradio_user_id");
+        if (!user_id) {
+            try {
+                const res = await fetch("/api/get_user_id");
+                const data = await res.json();
+                user_id = data.user_id;
+                localStorage.setItem("gradio_user_id", user_id);
+                console.log("Fetched user_id from server:", user_id);
+            } catch (err) {
+                console.error("Failed to fetch user_id from server:", err);
             }
         }
-    } catch (e) {
-        console.warn("Could not set localStorage user id:", e);
+        return user_id;
     }
-    const request_id = localStorage.getItem("gradio_user_id");
 
-    // Placeholder to be replaced server-side by Python:
-    // "<VAPID_PUBLIC_KEY_FROM_PYTHON>"
+    // -------------------------------
+    // Ensure push subscription once SW is ready
+    async function ensurePushSubscription() {
+        const user_id = await fetchUserId();
+        if (!user_id) return;
 
-    onReady("#submit-btn", (btn) => {
-        btn.addEventListener("click", async () => {
-            if (!("Notification" in window)) return;
-            if (Notification.permission === "default") {
-                if (confirm("We would like to notify you when your result is ready. Click OK to enable notifications.")) {
-                    try { await Notification.requestPermission(); } catch (err) { console.warn(err); }
-                }
-            }
+        if (!("Notification" in window)) return;
+        if (Notification.permission === "default") {
+            try { await Notification.requestPermission(); }
+            catch (err) { console.warn("Notification permission error:", err); }
+        }
+        if (Notification.permission !== "granted") return;
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
 
-            if (Notification.permission === "granted") {
-                if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-                    console.warn("Push not supported in this browser.");
-                    return;
-                }
-                try {
-                    const registration = await navigator.serviceWorker.ready;
-                    const vapidKey = "<VAPID_PUBLIC_KEY_FROM_PYTHON>";
-                    if (!vapidKey || vapidKey.trim() === "") {
-                        console.warn("VAPID public key not set on the page.");
-                        return;
-                    }
-                    const applicationServerKey = urlBase64ToUint8Array(vapidKey);
-                    let subscription = await registration.pushManager.getSubscription();
-                    if (!subscription) {
-                        subscription = await registration.pushManager.subscribe({
-                            userVisibleOnly: true,
-                            applicationServerKey: applicationServerKey
-                        });
-                    }
-                    await fetch("/api/subscribe", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ request_id, subscription })
-                    });
-                    console.log("Subscribed for push:", request_id);
-                } catch (err) {
-                    console.error("Push subscription failed:", err);
-                }
-            }
-        }, { once: true });
-    });
+        try {
+            const registration = await navigator.serviceWorker.ready;
+            const vapidKey = "<VAPID_PUBLIC_KEY_FROM_PYTHON>";
+            if (!vapidKey || vapidKey.trim() === "") return;
+            const applicationServerKey = urlBase64ToUint8Array(vapidKey);
 
-    onReady("#answer-html", (answer) => {
-        let awaitingAnswer = false;
-        const hasSpinner = () => !!answer.querySelector("#insight-spinner");
-        const hasContent = () => Array.from(answer.children).some(c => c.id !== "insight-spinner") || (answer.textContent?.trim().length > 0 && !hasSpinner());
-
-        const notifyBackend = async () => {
-            try {
-                await fetch("/api/notify", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        request_id,
-                        title: "InsightBridge",
-                        body: "Your answer is ready!"
-                    })
+            let subscription = await registration.pushManager.getSubscription();
+            if (!subscription) {
+                subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey
                 });
-            } catch (err) {
-                console.error("Backend notification failed:", err);
             }
-        };
 
-        const obs = new MutationObserver(() => {
-            if (hasSpinner()) { awaitingAnswer = true; return; }
-            if (awaitingAnswer && hasContent()) { awaitingAnswer = false; notifyBackend(); }
+            await fetch("/api/subscribe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id, subscription })
+            });
+            console.log("Subscribed for push:", user_id);
+        } catch (err) {
+            console.error("Push subscription failed:", err);
+        }
+    }
+
+    if ('serviceWorker' in navigator) navigator.serviceWorker.ready.then(() => ensurePushSubscription());
+
+    // After you have fetched user_id from server and saved it in localStorage
+    async function registerQuestion(question) {
+    const user_id = localStorage.getItem("gradio_user_id");
+    if (!user_id || !question || question.trim().length === 0) return;
+
+    const hashHex = fnv1aHash(question.trim()); // Use FNV-1a 32-bit
+
+    try {
+        await fetch("/api/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question_hash: hashHex, user_id })
         });
+        console.log(`Registered user_id ${user_id} for question hash ${hashHex}`);
+    } catch (err) {
+        console.error("Failed to register question:", err);
+    }
+}
 
-        obs.observe(answer, { childList: true, subtree: true, characterData: true });
+    // Add event listeners
+    onReady("#submit-btn", (submitBtn) => {
+        submitBtn.addEventListener("click", async () => {
+            const questionInput = document.querySelector("textarea[placeholder*='Ask a question']");
+            if (!questionInput) return;
+            const question = questionInput.value;
+            await registerQuestion(question);
+        });
     });
+
+    onReady("textarea[placeholder*='Ask a question']", (questionInput) => {
+        questionInput.addEventListener("keydown", async (e) => {
+            // Ctrl+Enter or Enter triggers registration
+            if ((e.key === "Enter" && e.ctrlKey) || (e.key === "Enter" && !e.shiftKey)) {
+                const question = questionInput.value;
+                await registerQuestion(question);
+            }
+        });
+    });
+
 }

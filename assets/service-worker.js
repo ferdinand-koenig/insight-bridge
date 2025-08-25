@@ -1,9 +1,8 @@
 // service-worker.js
 
-// Install & activate immediately
 self.addEventListener('install', (event) => {
     console.log('Service Worker installed.');
-    self.skipWaiting();
+    self.skipWaiting(); // activate immediately
 });
 
 self.addEventListener('activate', (event) => {
@@ -14,12 +13,13 @@ self.addEventListener('activate', (event) => {
 // Handle push events (background notifications)
 self.addEventListener('push', (event) => {
     let data = {};
-    if (event.data) {
-        try {
+    try {
+        if (event.data) {
             data = event.data.json();
-        } catch (err) {
-            console.warn('Push event data is not JSON', err);
         }
+    } catch (err) {
+        console.warn('Push event data is not valid JSON:', err);
+        data = { title: "InsightBridge", body: event.data.text() };
     }
 
     const title = data.title || "InsightBridge";
@@ -27,7 +27,8 @@ self.addEventListener('push', (event) => {
         body: data.body || "Your answer is ready!",
         icon: data.icon || "/favicon.ico",
         badge: data.badge || "/favicon.ico",
-        requireInteraction: true // keeps the notification until user clicks
+        requireInteraction: true,
+        data: data.url || "/" // store a URL to open on click
     };
 
     event.waitUntil(
@@ -41,17 +42,17 @@ self.addEventListener('notificationclick', (event) => {
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-            // Focus first focused client, or open a new one
+            // If a matching client tab exists, focus it
             for (const client of clientList) {
-                if (client.focused) return client.focus();
+                if ('focus' in client) return client.focus();
             }
-            if (clientList.length > 0) return clientList[0].focus();
-            return clients.openWindow('/');
+            // Otherwise open a new one
+            return clients.openWindow(event.notification.data || '/');
         })
     );
 });
 
-// Optional: handle messages from page (for immediate notifications when tab is active)
+// Allow manual notifications from the page (optional)
 self.addEventListener('message', (event) => {
     const data = event.data;
     if (data && data.type === 'show-notification') {

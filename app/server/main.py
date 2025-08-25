@@ -1,5 +1,6 @@
 import json
 import time
+import uuid
 
 from app import logger
 import asyncio
@@ -25,9 +26,38 @@ VAPID_PRIVATE_KEY = vapid["private_key"]
 notification_js = notification_js.replace("<VAPID_PUBLIC_KEY_FROM_PYTHON>", VAPID_PUBLIC_KEY)
 print(f"notification_js: {notification_js}")
 
-# request_id -> subscription
+# user_id -> subscription
 user_subscriptions = {}
+user_subscriptions_lock = asyncio.Lock()
 
+async def get_subscription(user_id):
+    async with user_subscriptions_lock:
+        return user_subscriptions.get(user_id)
+
+async def set_subscription(user_id, sub):
+    async with user_subscriptions_lock:
+        user_subscriptions[user_id] = sub
+
+
+# question hash -> user_id
+question_registry: dict[str, list[str]] = {}
+registry_lock = asyncio.Lock()
+
+def fnv1a_hash(s: str) -> str:
+    hash_ = 0x811c9dc5
+    for c in s:
+        hash_ ^= ord(c)
+        hash_ = (hash_ + (hash_ << 1) + (hash_ << 4) + (hash_ << 7) + (hash_ << 8) + (hash_ << 24)) & 0xFFFFFFFF
+    return f"{hash_:08x}"
+
+async def register_user_for_question(qhash: str, user_id: str):
+    async with registry_lock:
+        question_registry.setdefault(qhash, []).append(user_id)
+
+async def pop_user_ids_for_question(question: str) -> list[str]:
+    key = fnv1a_hash(question)
+    async with registry_lock:
+        return question_registry.pop(key, [])
 
 # Get the project root (insight-bridge) relative to this file
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # app/server/main -> insight-bridge
@@ -81,6 +111,7 @@ if gradio_server_config.get("use_mock_answer", False):
     with open("./dev_data/dummy_response.html", "r") as f:
         template_html = f.read()
 
+
     async def answer_question_cached(question):
         await asyncio.sleep(5)
         return template_html.replace("{{QUESTION}}", question)
@@ -107,6 +138,7 @@ else:
                 await backend_pool.record_request_time(inference_sec=inference_duration)
             return response
 
+
     # inject cache
     if CACHE_FILE.exists():
         try:
@@ -116,7 +148,6 @@ else:
             logger.info(f"Restored {len(data)} cache entries from {CACHE_FILE}")
         except Exception as e:
             logger.warning(f"Failed to load cache: {e}")
-
 
 server_host = gradio_server_config.get("host", "0.0.0.0")
 server_port = gradio_server_config.get("port", 7860)
@@ -132,13 +163,37 @@ if not ssl_enabled:
         server_port = 80
 
 
-async def answer_question_with_status(question, request_id):
+async def notify_users(question):
+    user_ids = await pop_user_ids_for_question(question)
+    logger.info(f"Notifying {len(user_ids)} users")
+    for user_id in set(user_ids):
+        sub_str = await get_subscription(user_id)
+        if sub_str:
+            sub = json.loads(sub_str)
+            try:
+                webpush(
+                    subscription_info=sub,
+                    data=json.dumps(
+                        {"title": "Answer ready", "body": f"Your question '{question}' has been answered."}),
+                    vapid_private_key=VAPID_PRIVATE_KEY,
+                    vapid_claims={"sub": "mailto:you@yourdomain.com"},
+                    ttl=300,  # expire after 60s if not delivered
+                    headers={"Urgency": "high"}  # try to deliver immediately
+                )
+            except WebPushException as ex:
+                logger.warning(f"Failed to send push to {user_id}: {ex}")
+
+
+async def answer_question_with_status(question, request_id=None):
     try:
         # question counter
         global question_count
         with counter_lock:
             question_count += 1
         logger.info(f"Total questions asked: {question_count}")
+
+        if request_id is None:
+            logger.warning("No request_id provided!")
 
         if gradio_server_config.get("use_mock_answer", False):
             logger.debug("Redirecting to mock answer")
@@ -190,13 +245,15 @@ async def answer_question_with_status(question, request_id):
 
             result, meta = await answer_question_cached(question)
 
-            logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
+            logger.debug(
+                ("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
             if type(result) is asyncio.Future:  # TODO fix whatever is happening here
                 result = await result
 
             elapsed = loop.time() - start_time
 
-            logger.debug(("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
+            logger.debug(
+                ("answer:", (result[:50] + '...' if isinstance(result, str) and len(result) > 50 else result), meta))
 
             if meta["from_cache"]:
                 result += (f"<br><i>This response was retrieved from the custom cache with "
@@ -207,28 +264,16 @@ async def answer_question_with_status(question, request_id):
 
             yield result
 
-            sub_str = user_subscriptions.get(request_id)
-            if sub_str:
-                sub = json.loads(sub_str)
-                try:
-                    webpush(
-                        subscription_info=sub,
-                        data=json.dumps(
-                            {"title": "Answer ready", "body": f"Your question '{question}' has been answered."}),
-                        vapid_private_key=VAPID_PRIVATE_KEY,
-                        vapid_claims={"sub": "mailto:you@yourdomain.com"}
-                    )
-                except WebPushException as ex:
-                    logger.warning(f"Failed to send push to {request_id}: {ex}")
+            asyncio.create_task(notify_users(question))
     except asyncio.CancelledError:
         return
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent  # /insight-bridge
 ASSETS_DIR = BASE_DIR / "assets"
 
 logger.info(f"ASSETS_DIR: {ASSETS_DIR}")
 SERVICE_WORKER_PATH = (ASSETS_DIR / "service-worker.js").resolve()
-
 
 gr.set_static_paths([str(ASSETS_DIR)])  # Gradio expects a list of paths
 
@@ -237,8 +282,8 @@ favicon_file = ASSETS_DIR / "favicon.ico"
 
 # UI definition:
 with gr.Blocks(
-    title="InsightBridge: Semantic Q&A with LangChain & HuggingFace",
-    js=notification_js
+        title="InsightBridge: Semantic Q&A with LangChain & HuggingFace",
+        js=notification_js
 ) as app:
     # GET method counter
     with counter_lock:
@@ -261,7 +306,6 @@ with gr.Blocks(
                             "Question will be logged for demo and improvement purposes.\n" + \
                             "⚠️ Please do not include any personal information (names, emails, etc.)."
             )
-            user_id_input = gr.Textbox(value="", visible=False, elem_id="user-id-input")
             submit_btn = gr.Button("Submit", elem_id="submit-btn")
             info_box = gr.HTML(info_box_html)
 
@@ -272,20 +316,26 @@ with gr.Blocks(
     # Connect submit button to function
     submit_btn.click(
         answer_question_with_status,
-        inputs=[question_input, user_id_input],
+        inputs=[question_input],
         outputs=output_html
     )
     # Allow Ctrl+Enter (or Enter) in the textbox to submit
     question_input.submit(
         answer_question_with_status,
-        inputs=[question_input, user_id_input],
+        inputs=[question_input],
         outputs=output_html
     )
 
-
 stop_event = threading.Event()
+cleanup_running = False
+
 
 def cleanup():
+    global cleanup_running
+    if cleanup_running:
+        logger.warning("Cleanup already running, skipping...")
+        return
+    cleanup_running = True
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -341,6 +391,7 @@ def cleanup():
 
         stop_event.set()
 
+
 def launch_gradio():
     app.queue(default_concurrency_limit=20)
     api_app, _, _ = app.launch(
@@ -355,45 +406,29 @@ def launch_gradio():
 
     router = APIRouter()
 
+    @router.get("/api/get_user_id")
+    async def get_user_id():
+        user_id = str(uuid.uuid4())  # server-generated UUID
+        return JSONResponse({"user_id": user_id})
+
     @router.post("/api/subscribe")
     async def subscribe(request: Request):
         data = await request.json()
-        request_id = data.get("request_id")
+        user_id = data.get("user_id")
         subscription = data.get("subscription")
         sub_str = json.dumps(subscription, sort_keys=True)
-        user_subscriptions[request_id] = sub_str
-        logger.info(f"New subscription for request_id {request_id}. Total: {len(user_subscriptions)}")
+        await set_subscription(user_id, sub_str)
+        logger.info(f"New subscription for request_id {user_id}. Total: {len(user_subscriptions)}")
         return JSONResponse({"status": "subscribed"})
 
-
-    @router.post("/api/notify")
-    async def notify(request: Request):
-        data = await request.json()
-        request_id = data.get("request_id")
-        title = data.get("title", "Notification")
-        body = data.get("body", "")
-
-        sub_str = user_subscriptions.get(request_id)
-        if not sub_str:
-            logger.warning(f"No subscription found for request_id {request_id}")
-            return JSONResponse({"error": "Subscription not found"}, status_code=404)
-
-        subscription_info = json.loads(sub_str)
-
-        try:
-            webpush(
-                subscription_info=subscription_info,
-                data=json.dumps({"title": title, "body": body}),
-                vapid_private_key=VAPID_PRIVATE_KEY,
-                vapid_claims={"sub": "mailto:you@yourdomain.com"}
-            )
-            logger.info(f"Notification sent to {request_id}")
-        except WebPushException as ex:
-            logger.warning(f"Failed to send push to {request_id}: {ex}")
-            return JSONResponse({"error": str(ex)}, status_code=500)
-
-        return JSONResponse({"status": "notification sent"})
-
+    @router.post("/api/register")
+    async def register_question(data: dict):
+        qhash = data.get("question_hash")
+        user_id = data.get("user_id")
+        if not qhash or not user_id:
+            return JSONResponse({"error": "Missing hash or user_id"}, status_code=400)
+        await register_user_for_question(qhash, user_id)
+        return JSONResponse({"status": "registered", "hash": qhash})
 
     api_app.include_router(router)
 
@@ -414,7 +449,7 @@ def handle_shutdown_signal(signum, frame):
 
 if __name__ == "__main__":
     # Register signals
-    signal.signal(signal.SIGINT, handle_shutdown_signal)   # Ctrl+C
+    signal.signal(signal.SIGINT, handle_shutdown_signal)  # Ctrl+C
     signal.signal(signal.SIGTERM, handle_shutdown_signal)  # Docker/K8s termination
 
     # Start Gradio in a background thread
