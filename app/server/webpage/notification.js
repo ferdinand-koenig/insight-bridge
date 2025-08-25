@@ -1,5 +1,5 @@
 // notification.js - NOTE: this file must define a function body (no IIFE)
-function () {
+function notficication() {
     const root = (window.gradioApp && window.gradioApp()) || document.querySelector("gradio-app")?.shadowRoot || document;
     const $ = (sel, r = root) => r.querySelector(sel);
 
@@ -136,7 +136,7 @@ function () {
     onReady("textarea[placeholder*='Ask a question']", (questionInput) => {
         questionInput.addEventListener("keydown", async (e) => {
             // Ctrl+Enter or Enter triggers registration
-            if ((e.key === "Enter" && e.ctrlKey) || (e.key === "Enter" && !e.shiftKey)) {
+            if ((e.key === "Enter" && e.ctrlKey)) {
                 const question = questionInput.value;
                 await registerQuestion(question);
             }

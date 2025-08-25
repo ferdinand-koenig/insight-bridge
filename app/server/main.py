@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import gradio as gr
 import yaml
 from pywebpush import webpush, WebPushException
@@ -24,7 +24,6 @@ vapid = vapid_generator.generate_vapid_keypair()
 VAPID_PUBLIC_KEY = vapid["public_key"]
 VAPID_PRIVATE_KEY = vapid["private_key"]
 notification_js = notification_js.replace("<VAPID_PUBLIC_KEY_FROM_PYTHON>", VAPID_PUBLIC_KEY)
-print(f"notification_js: {notification_js}")
 
 # user_id -> subscription
 user_subscriptions = {}
@@ -270,15 +269,14 @@ async def answer_question_with_status(question, request_id=None):
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent  # /insight-bridge
-ASSETS_DIR = BASE_DIR / "assets"
+PWA_DIR = BASE_DIR / "pwa"
 
-logger.info(f"ASSETS_DIR: {ASSETS_DIR}")
-SERVICE_WORKER_PATH = (ASSETS_DIR / "service-worker.js").resolve()
-
-gr.set_static_paths([str(ASSETS_DIR)])  # Gradio expects a list of paths
+logger.info(f"ASSETS_DIR: {PWA_DIR}")
+SERVICE_WORKER_PATH = (PWA_DIR / "service-worker.js").resolve()
+DESKTOP_ICONS_PATH = PWA_DIR / "desktop_icons"
 
 # Favicon
-favicon_file = ASSETS_DIR / "favicon.ico"
+favicon_file = PWA_DIR / "favicon.ico"
 
 # UI definition:
 with gr.Blocks(
@@ -400,7 +398,11 @@ def launch_gradio():
         ssl_certfile=SSL_CERT_PATH if ssl_enabled else None,
         ssl_keyfile=SSL_KEY_PATH if ssl_enabled else None,
         favicon_path=favicon_file,
-        allowed_paths=[str(ASSETS_DIR), str(SERVICE_WORKER_PATH), "/service-worker.js"],
+        # allowed_paths=[str(ASSETS_DIR),
+        #                str(SERVICE_WORKER_PATH),
+        #                str(DESKTOP_ICONS_PATH),
+        #                "/service-worker.js",
+        #                "/manifest.json"],
         prevent_thread_lock=True
     )
 
@@ -429,6 +431,31 @@ def launch_gradio():
             return JSONResponse({"error": "Missing hash or user_id"}, status_code=400)
         await register_user_for_question(qhash, user_id)
         return JSONResponse({"status": "registered", "hash": qhash})
+
+    @router.get("/pwa/desktop_icons/{icon_name}")
+    async def serve_icon(icon_name: str):
+        icon_path = DESKTOP_ICONS_PATH / icon_name
+        if icon_path.exists() and icon_path.is_file():
+            return FileResponse(icon_path)
+        return {"error": "Icon not found"}, 404
+
+    @router.get("/pwa/manifest.json")
+    async def serve_manifest():
+        if (PWA_DIR / "manifest.json").exists():
+            return FileResponse(PWA_DIR / "manifest.json")
+        return {"error": "Manifest not found"}, 404
+
+    @router.get("/pwa/service-worker.js")
+    async def serve_service_worker():
+        """
+        Serve the PWA service worker at the root path.
+        """
+        if SERVICE_WORKER_PATH.exists() and SERVICE_WORKER_PATH.is_file():
+            return FileResponse(
+                SERVICE_WORKER_PATH,
+                media_type="application/javascript"
+            )
+        return {"error": "Service worker not found"}, 404
 
     api_app.include_router(router)
 

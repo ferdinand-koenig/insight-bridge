@@ -144,7 +144,7 @@ RUN poetry self add poetry-plugin-export \
 COPY app/__init__.py app/logger.py ./app/
 COPY app/server ./app/server
 COPY app/llm_worker_provisioners/ ./app/llm_worker_provisioners/
-COPY assets ./assets
+COPY pwa ./pwa
 COPY config.yaml ./
 COPY app/tests ./app/tests
 # TODO remove the test directory

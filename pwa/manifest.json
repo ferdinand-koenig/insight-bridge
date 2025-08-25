@@ -1,0 +1,22 @@
+{
+  "name": "InsightBridge: Semantic Q&A",
+  "short_name": "InsightBridge",
+  "description": "Ask questions related to your document corpus (Preprints of cs.CL June '25) using a FAISS index and HuggingFace LLM.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#fcc888",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/pwa/desktop_icons/icon_192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/pwa/desktop_icons/icon_512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
