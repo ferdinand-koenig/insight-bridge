@@ -291,13 +291,19 @@ with gr.Blocks(
     # Title and description
     gr.HTML("<h1 style='text-align: center;'>InsightBridge: Semantic Q&A with LangChain & HuggingFace</h1>")
     gr.Markdown(
-        "Enter a question related to your document corpus (Preprints of cs.CL June '25). "
-        "Powered by a FAISS index and HuggingFace LLM."
+        """
+        📌 **Why this exists:** Recruiters, researchers, and enthusiasts often want to quickly understand recent LLM research without reading dozens of preprints.  
+        🤖 **What this does:** Ask natural language questions about curated AI preprints (June 2025) and get concise answers using a FAISS index and a language model.  
+        ⚠️ **Important:** This is a QA system, not a chatbot – each question is independent.  
+        📝 **How to use:** Type your question, hit 'Submit', and view the answer. Processing may take several minutes.  
+        🔔 **Optional:** Enable notifications to be alerted when your answer is ready.  
+        📱 **Tip:** You can install this web app on your device for quick access.
+        """
     )
-    gr.Button("🔔 Enable Notifications", elem_id="notif-btn")
-    with gr.Row():
+    with gr.Row(elem_classes="main-row"):
         # LEFT COLUMN: input + submit + info box
         with gr.Column(scale=1):
+            gr.Button("🔔 Enable Notifications", elem_id="notif-btn")
             question_input = gr.Textbox(
                 lines=3,
                 placeholder="Ask a question about LLM preprints of June. " + \
@@ -305,12 +311,29 @@ with gr.Blocks(
                             "⚠️ Please do not include any personal information (names, emails, etc.)."
             )
             submit_btn = gr.Button("Submit", elem_id="submit-btn")
-            info_box = gr.HTML(info_box_html)
+            info_box = gr.HTML(info_box_html, elem_classes="info-box desktop-only")
 
-        # RIGHT COLUMN: output box spanning right half
-        with gr.Column(scale=1):
-            output_html = gr.HTML(elem_id="answer-html")
-
+        # RIGHT COLUMN: output box
+        with gr.Column(scale=1, elem_classes="right-col"):
+            output_html = gr.HTML(elem_id="answer-html", elem_classes="answer-box")
+            info_box_mobile = gr.HTML(info_box_html, elem_classes="info-box mobile-only")
+    # CSS for responsive behavior
+    gr.HTML(
+        """
+        <style>
+        .desktop-only { display: block; }
+        .mobile-only { display: none; }
+    
+        @media (max-width: 768px) {
+            .main-row { flex-direction: column !important; }
+            .left-col, .right-col { width: 100% !important; }
+            .desktop-only { display: none; }
+            .mobile-only { display: block; }
+            .right-col { display: flex; flex-direction: column-reverse; }
+        }
+        </style>
+        """
+    )
     # Connect submit button to function
     submit_btn.click(
         answer_question_with_status,
