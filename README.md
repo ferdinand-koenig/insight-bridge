@@ -3,6 +3,16 @@
   <img src="https://mirrors.creativecommons.org/presskit/buttons/88x31/png/by-nc-sa.png" width="58"/>
 </a>
 
+<p align="center">
+  <a href="https://llm.koenix.de">
+    <img src="pwa/desktop_icons/icon_512.png" alt="LLM WebApp" width="64" height="64">
+  </a>
+  <br>
+  <strong>Check out the WebApp!</strong>
+  <br>
+  <a href="https://llm.koenix.de">https://llm.koenix.de</a>
+</p>
+
 **GitHub:** [ferdinand-koenig/insight-bridge](https://github.com/ferdinand-koenig/insight-bridge)  
 **LinkedIn:** [ferdinand-koenig](https://www.linkedin.com/in/ferdinand-koenig)
 
@@ -53,13 +63,22 @@ _Designed and implemented as a production-ready, state-of-the-art cloud solution
 *   Integration of **FAISS** RAG with **LangChain** and **HuggingFace** models via **Llama.cpp** for CPU-optimized inference
 *   CDLL (.so) linking for efficient backend model loading and correct Llama.cpp integration
 
+### 6\. Full Progressive Web App with Web Push Notifications
+
+* Implements a Progressive Web App (PWA) interface that can be installed on desktops and mobile devices, giving a **native-app-like experience**.
+* Supports Web Push Notifications to **alert users when inference results are ready**, even if the app is running in the background.
+* Cryptographically **secure notifications** using VAPID keys to ensure messages are authenticated and tamper-proof.
+* **Adheres to browser and privacy policies**, requiring explicit user consent before enabling notifications; ensures **no personal data is shared without permission**.
+
+
 ## Project Info
 
-*   **Tech Stack:** Python, LangChain, HuggingFace, FAISS, Llama.cpp, Custom Caching, Docker, Gradio
+*   **Tech Stack:** Python, LangChain, HuggingFace, FAISS, Llama.cpp, Custom Caching, Docker, Gradio, PWA, Web Push Notifications
 *   **Resource Efficient:** Small models run without GPU; longer responses expected.
 *   **High Privacy:** Inference runs locally; input is not sent to third parties.
 *   **Limitations:** Lower quality answers; fewer documents can be processed per request.
-*   **Model:** mistral-7b-instruct-v0.2.Q4\_K\_M (Quantized to 4 Bit; 7B parameters)
+*   **Model:** [`Mistral-Nemo-12B-Instruct-2407-Q4_K_M.gguf`](https://huggingface.co/starble-dev/Mistral-Nemo-12B-Instruct-2407-GGUF) (12B parameters, instruction-tuned for Q&A tasks, quantized for efficiency)
+
 
 ## Disclaimer
 
@@ -82,12 +101,15 @@ This project enables natural language Q&A on technical PDFs by:
 
 
 ## Tech Stack
-> **TODO** Include here
-Python, Pre-commit, fluff, ...
 
-> Engineering Contributions
-> - new Decorator that handles async and sync with future-aware caching (i.e., when one calculation is scheduled, the same is not restarted)
----
+- **Programming & Orchestration:** Python  
+- **Embedding & Vector Search:** SentenceTransformers, FAISS  
+- **LLM Inference:** HuggingFace Transformers, llama.cpp (quantized models)  
+- **Web Interface & Deployment:** Gradio, Progressive Web App (PWA), Docker, Cloud orchestration (Hetzner)  
+- **Monitoring & Logging:** Python logging, system monitoring for production readiness  
+- **Efficiency & Utilities:** Custom async/sync decorator with future-aware caching to avoid redundant calculations  
+- **Code Quality & Maintenance:** Pre-commit hooks, fluff
+
 
 ## High-level functionality and diagrams
 ### Cloud Architecture
@@ -495,6 +517,26 @@ docker run --name llm_app \
     wget -O Mistral-Nemo-12B-Instruct-2407-Q4_K_M.gguf "https://huggingface.co/starble-dev/Mistral-Nemo-12B-Instruct-2407-GGUF/resolve/main/Mistral-Nemo-12B-Instruct-2407-Q4_K_M.gguf?download=true"
     ``` 
 * Creat container (see above 'manually start worker')
+* make a service to set up the swap. (Keeps snapshot small)
+    * Copy the script from `documentation`
+    ```bash
+  sudo nano /etc/systemd/system/setup-swap.service
+    ```
+  Paste
+    ```
+  [Unit]
+    Description=Setup swap file at boot
+    After=network.target
+    
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/local/sbin/setup-swap.sh
+    RemainAfterExit=yes
+    
+    [Install]
+    WantedBy=multi-user.target
+  ```
+
 * make a service for starting the llm app
     ```bash
   sudo nano /etc/systemd/system/llm_app.service
@@ -503,8 +545,8 @@ docker run --name llm_app \
     ```
   [Unit]
     Description=LLM App Worker
-    After=network.target docker.service
-    Requires=docker.service
+    After=network.target docker.service swap.target
+    Requires=docker.service swap.target
     
     [Service]
     Restart=always
@@ -519,6 +561,7 @@ docker run --name llm_app \
 * Start service
   ```bash
   sudo systemctl daemon-reload
+  sudo systemctl enable setup-swap.service
   sudo systemctl enable llm_app.service
   sudo systemctl start llm_app.service
   ```
