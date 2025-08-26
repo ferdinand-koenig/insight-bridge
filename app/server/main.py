@@ -235,7 +235,7 @@ async def answer_question_with_status(question):
             if not (look_ahead_result == "hit" or has_ready):
                 # if not cached result and has no ready instance
                 # yield spinner_html("Thinking… This usually takes ~1-2 minutes as no GPU resources are used.")
-                if capacity["current_capacity"] > 0:
+                if capacity["current_capacity"] > 0 and (await backend_pool.should_spawn_new_backend()):
                     yield spinner_html(
                         "Thinking… A new worker is booting (up to 15 min) 🚀. "
                         "If that feels long, try one of the suggested questions. "
