@@ -50,7 +50,7 @@ backend_pool:
 
 
 hetzner:
-  snapshot_name: 311736535
+  snapshot_name: 312591738
   ssh_key_name: "llm-hetzner-main-server"
   ssh_key_path: "~/.ssh/llm-hetzner-main-server"
   server_type: ["CX52", "CX42", "CPX41", "CX32", "CPX31"]
