@@ -138,10 +138,30 @@ function notification() {
         // -------------------------------
     // Enable notifications button behavior
     async function enableNotificationsButtonHandler() {
-        await deletePreviousSubscription();        // Step 1: delete old subscription
-        await ensurePushSubscription();            // Step 2: request and create new subscription
-        const questionInput = $("textarea[placeholder*='Ask a question']");
-        if (questionInput) await registerQuestion(questionInput.value); // Step 3: register current question
+        const btn = $("button#notif-btn");
+        if (!btn) return;
+
+        const originalText = btn.textContent;
+        btn.disabled = true; // prevent double clicks
+
+        try {
+            await deletePreviousSubscription();
+            await ensurePushSubscription();
+            const questionInput = $("textarea[placeholder*='Ask a question']");
+            if (questionInput) await registerQuestion(questionInput.value);
+
+            btn.textContent = "✅ Notifications enabled!";
+
+        } catch (err) {
+            console.error("Failed to enable notifications:", err);
+            btn.textContent = "⚠️ Failed";
+        } finally {
+            // Revert back to original text and enable button after 3s
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }, 3000);
+        }
     }
 
     // Add event listeners
