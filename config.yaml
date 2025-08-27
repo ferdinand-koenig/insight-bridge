@@ -36,7 +36,7 @@ worker_server:
 
 backend_pool:
   mode: "hetzner"  # "local" or "hetzner"
-  max_backends: 2
+  max_backends: 4
   idle_buffer: 360  # seconds
   health_timeout: 600
   inference_timeout: 600  #300
