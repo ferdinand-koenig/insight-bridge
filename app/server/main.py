@@ -1,5 +1,4 @@
 import json
-import time
 import uuid
 
 from app import logger
@@ -10,16 +9,18 @@ import signal
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Security, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi import APIRouter, Request, Security, HTTPException, FastAPI
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.security.api_key import APIKeyHeader
+import uvicorn
 import gradio as gr
 import yaml
 from pywebpush import webpush, WebPushException
 from .webpage import vapid_generator
 from .cache_utils import cache_with_hit_delay
-from .webpage.webpage_resources import spinner_html, info_box_html, notification_js
+from .webpage.webpage_resources import spinner_html, info_box_html, notification_js, meta_tags_html
 from .backend_pool_singleton import SingletonBackendPool
+from .middleware import MetaTagsMiddleware
 
 # Get the project root (insight-bridge) relative to this file
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # app/server/main -> insight-bridge
@@ -50,7 +51,7 @@ VAPID_PUBLIC_KEY = vapid["public_key"]
 VAPID_PRIVATE_KEY = vapid["private_key"]
 notification_js = notification_js.replace("<VAPID_PUBLIC_KEY_FROM_PYTHON>", VAPID_PUBLIC_KEY)
 
-API_KEY_NAME = "LLM_IB_VM_SPINUP_KEY"
+API_KEY_NAME = "LLM-IB-VM-SPINUP-KEY"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 
 AUTHORIZED_KEYS = {os.environ.get("LLM_IB_VM_SPINUP_KEY")}
@@ -302,13 +303,9 @@ favicon_file = PWA_DIR / "favicon.ico"
 # UI definition:
 with gr.Blocks(
         title="InsightBridge: Semantic Q&A with LangChain & HuggingFace",
+        head=meta_tags_html,
         js=notification_js
 ) as app:
-    # GET method counter
-    with counter_lock:
-        page_load_count += 1
-    logger.info(f"Page loads: {page_load_count}")
-
     # Title and description
     gr.HTML("<h1 style='text-align: center;'>InsightBridge: Semantic Q&A with LangChain & HuggingFace</h1>")
     gr.Markdown(
@@ -436,21 +433,41 @@ def cleanup():
 
 def launch_gradio():
     app.queue(default_concurrency_limit=20)
-    api_app, _, _ = app.launch(
-        server_name=server_host,
-        server_port=server_port,
-        ssl_certfile=SSL_CERT_PATH if ssl_enabled else None,
-        ssl_keyfile=SSL_KEY_PATH if ssl_enabled else None,
-        favicon_path=favicon_file,
-        # allowed_paths=[str(ASSETS_DIR),
-        #                str(SERVICE_WORKER_PATH),
-        #                str(DESKTOP_ICONS_PATH),
-        #                "/service-worker.js",
-        #                "/manifest.json"],
-        prevent_thread_lock=True
-    )
 
+    # create a FastAPI app
+    api_app = FastAPI()
+    api_app.add_middleware(MetaTagsMiddleware)
+
+    # --- Add routes ---
     router = APIRouter()
+
+    # --- Landing page at / with meta tags ---
+    @router.get("/", response_class=HTMLResponse)
+    async def landing():
+        # Wrap your meta_tags_html inside a minimal HTML document
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            {meta_tags_html}
+        </head>
+        <body>
+            <p>Redirecting to the app... <a href="/app/">Click here if not redirected.</a></p>
+            <script>window.location.href="/app/";</script>
+        </body>
+        </html>
+        """
+        global page_load_count
+        with counter_lock:
+            page_load_count += 1
+        logger.info(f"GET / - Current page load count: {page_load_count}")
+        return HTMLResponse(content=html_content)
+
+    @router.get("/favicon.ico")
+    async def favicon():
+        if favicon_file.exists() and favicon_file.is_file():
+            return FileResponse(favicon_file, media_type="image/x-icon")
+        return {"error": "Favicon not found"}, 404
 
     @router.get("/api/get_user_id")
     async def get_user_id():
@@ -512,14 +529,29 @@ def launch_gradio():
 
     api_app.include_router(router)
 
-    # Keep the thread alive
-    stop_event = threading.Event()
+    # --- Mount Gradio interface ---
+    gr.mount_gradio_app(api_app, app, path="/app")
 
-    try:
-        while not stop_event.is_set():
-            time.sleep(1)
-    finally:
-        logger.info("Shutting down Gradio thread...")
+    config = uvicorn.Config(
+        api_app,
+        host=server_host,
+        port=server_port,
+        ssl_certfile=SSL_CERT_PATH if ssl_enabled else None,
+        ssl_keyfile=SSL_KEY_PATH if ssl_enabled else None,
+        log_level="warning"
+    )
+    server = uvicorn.Server(config)
+
+    # Blocking call — safe inside the thread
+    server.run()
+    # # Keep the thread alive
+    # stop_event = threading.Event()
+    #
+    # try:
+    #     while not stop_event.is_set():
+    #         time.sleep(1)
+    # finally:
+    #     logger.info("Shutting down Gradio thread...")
 
 
 def handle_shutdown_signal(signum, frame):

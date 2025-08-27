@@ -4,6 +4,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent  # this is app/server/webpage
 NOTIF_JS_PATH = BASE_DIR / "notification.js"
 INFO_BOX_PATH = BASE_DIR / "info_box.html"
+META_TAGS_PATH = BASE_DIR / "meta_tags.html"
 
 
 user = "ferdinand"
@@ -18,6 +19,8 @@ with open(INFO_BOX_PATH, "r", encoding="utf-8") as f:
 info_box_html = info_box_html.replace("{obfuscated_email}", obfuscated_email)
 
 
+with open(META_TAGS_PATH, "r", encoding="utf-8") as f:
+    meta_tags_html = f.read()
 
 def spinner_html(message: str) -> str:
     return f"""
