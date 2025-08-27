@@ -353,7 +353,7 @@ class BackendPool:
             startup_duration = asyncio.get_event_loop().time() - start
             logger.info(f"New backend ready. Time passed: {startup_duration:.1f} seconds")
             bw = BackendInstanceWrapper(instance)
-            bw.busy = True
+            bw.busy = False
             self.backends.append(bw)
             await self.record_request_time(startup_sec=startup_duration, use_lock=False)
             return bw
