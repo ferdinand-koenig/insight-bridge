@@ -460,11 +460,20 @@ This captures the **economic trade-off**: spawn a new backend only if doing so w
     *   Each request spawns or allocates a VPS, runs inference via SSH, then releases the backend
 
 ### Dev notes
+This section contains snippets, that are useful during development and deployment.
+Please check also the `documentation` folder. It contains the nginx configuration used for
+`llm.koenix.de` and can be used on your server, too! 
+
 #### If poetry env installation jams
 ```bash
 peotry env remove python
 poetry env use python3.10
 
+```
+
+#### Build server and send to host
+```commandline
+docker buildx bake server; docker save -o insight-bridge-server.tar insight-bridge-server;  scp -i 'C:\Users\koenig\.ssh\llm-hetzner' .\insight-bridge-server.tar root@95.217.211.155:/root/insight-bridge-server.tar
 ```
 
 #### Start the docker on the server
@@ -473,16 +482,23 @@ docker run -it --rm \
   -v /root/logs/:/insight-bridge/logs/ \
   -v /root/cache/:/insight-bridge/cache/ \
   -v /root/.ssh/llm-hetzner-main-server:/root/.ssh/llm-hetzner-main-server:ro \
-  -p 8080:8080 \
-  -e HETZNER_API_TOKEN=$HETZNER_API_TOKEN \
+  -v /root/pip_cache:/root/.cache/pip \
+  -p 127.0.0.1:8080:8080 \
+  -e HETZNER_API_TOKEN=$HETZNER_API_TOKEN  \
+  -e LLM_IB_VM_SPINUP_KEY=$LLM_IB_VM_SPINUP_KEY
   insight-bridge-server:latest
 
 ```
 
-#### Build server and send to host
-```commandline
-docker buildx bake server; docker save -o insight-bridge-server.tar insight-bridge-server;  scp -i 'C:\Users\koenig\.ssh\llm-hetzner' .\insight-bridge-server.tar root@95.217.211.155:/root/insight-bridge-server.tar
+Bind to 127.0.0.1 explicitly to not expose externally.
+
+#### Manually request the provision of workers
+When high loads are foreseeable, you can provision new workers via the following command
+```bash
+curl -X POST "https://llm.koenix.de/ctrl/add_auxiliary_instance?amount=1" \
+     -H "LLM-IB-VM-SPINUP-KEY:a1b2c3d4e5f6g7"
 ```
+Use the same key as in the server startup command.
 
 #### Manually start worker
 ```bash
